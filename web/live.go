@@ -157,9 +157,9 @@ func (s *Server) runWatcher() {
 		now := time.Now()
 
 		if err != nil {
-			log.Printf("watcher: stat %s: %v", s.dbPath, err)
+			log.Printf("memory.db watcher: stat %s: %v", s.dbPath, err)
 			s.statusMu.Lock()
-			s.sourceStatus["watcher"] = SourceStatus{LastRun: now, OK: false, Error: err.Error()}
+			s.sourceStatus["memory.db"] = SourceStatus{LastRun: now, OK: false, Error: err.Error()}
 			s.statusMu.Unlock()
 			continue
 		}
@@ -167,8 +167,8 @@ func (s *Server) runWatcher() {
 		changed := fi.ModTime().After(lastMod)
 
 		s.statusMu.Lock()
-		prev := s.sourceStatus["watcher"]
-		s.sourceStatus["watcher"] = SourceStatus{
+		prev := s.sourceStatus["memory.db"]
+		s.sourceStatus["memory.db"] = SourceStatus{
 			LastRun:    now,
 			LastChange: func() time.Time {
 				if changed {

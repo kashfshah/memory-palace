@@ -168,6 +168,7 @@ const SRC_LABELS = {
   archivebox:          'ArchiveBox',
   knowledgec:          'App Usage',
   clipboard:           'Clipboard',
+  'memory.db':         'memory.db',
 };
 
 function srcLabel(s) { return SRC_LABELS[s] || s.replace(/_/g, ' '); }
