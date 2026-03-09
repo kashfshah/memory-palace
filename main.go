@@ -291,8 +291,17 @@ func main() {
 	fmt.Printf("Indexed %d records from %d sources in %s\n", total, len(sources), elapsed.Round(time.Millisecond))
 
 	// Write per-source status for the health endpoint.
+	// Merge with existing file so partial runs (--sources x,y) don't wipe
+	// status entries for sources that weren't included in this run.
 	statusPath := filepath.Join(filepath.Dir(*dbPath), "indexer-status.json")
-	if data, err := json.Marshal(statusMap); err == nil {
+	merged := make(map[string]sourceStatus)
+	if existing, err := os.ReadFile(statusPath); err == nil {
+		json.Unmarshal(existing, &merged)
+	}
+	for k, v := range statusMap {
+		merged[k] = v
+	}
+	if data, err := json.Marshal(merged); err == nil {
 		os.WriteFile(statusPath, data, 0644)
 	}
 
