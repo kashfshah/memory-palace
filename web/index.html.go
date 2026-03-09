@@ -396,6 +396,7 @@ const indexHTML = `<!DOCTYPE html>
       <option value="archivebox">ArchiveBox</option>
       <option value="knowledgec">App Usage</option>
       <option value="clipboard">Clipboard</option>
+      <option value="news_saved">News (Saved)</option>
     </select>
     <button id="search-mode-btn" class="semantic-on" onclick="toggleSearchMode()" title="Toggle semantic (vector) search">✦ Semantic</button>
     <button onclick="doSearch()">Search</button>
@@ -689,14 +690,14 @@ const SRC_COLORS = {
   safari_open_tabs: '#79c0ff', safari_icloud_tabs: '#56d364',
   safari_reading_list: '#388bfd', calendar: '#d29922',
   reminders: '#bc8cff', notes: '#f778ba', zotero: '#cc3333', archivebox: '#f0883e',
-  knowledgec: '#a371f7'
+  knowledgec: '#a371f7', news_saved: '#e8a22a'
 };
 const SRC_LABELS = {
   safari_history: 'Safari History', safari_bookmarks: 'Bookmarks',
   safari_open_tabs: 'Open Tabs', safari_icloud_tabs: 'iCloud Tabs',
   safari_reading_list: 'Reading List', calendar: 'Calendar',
   reminders: 'Reminders', notes: 'Notes', zotero: 'Zotero', archivebox: 'ArchiveBox',
-  knowledgec: 'App Usage', clipboard: 'Clipboard'
+  knowledgec: 'App Usage', clipboard: 'Clipboard', news_saved: 'News (Saved)'
 };
 function formatSourceFull(s) { return SRC_LABELS[s] || s.replace(/_/g, ' '); }
 
