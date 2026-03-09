@@ -50,7 +50,8 @@ Every extractor in `extractors/` follows this contract:
 
 Adding a new extractor: implement `Extract() ([]store.Record, error)`, register in
 `extractors/extractors.go` Registry, add label to `SRC_LABELS` in `web/index.html.go`
-and `web/health.html.go`.
+and `web/health.html.go`. Then run `make install` — the web UI is embedded in the
+app bundle binary; `go build` alone does not update the running service.
 
 ---
 
@@ -87,6 +88,12 @@ Blocked domains and title substrings live in `extractors/sanitize.go`. Run
 ## Build and Run
 
 ```bash
+# DEPLOY: always use make install — the launchd service runs the app bundle
+# at ~/Applications/MemoryPalace.app/Contents/MacOS/memory-palace, not bin/.
+# go build only updates bin/memory-palace, which is NOT what runs in production.
+make install
+
+# Development / one-off (does NOT update the running service):
 go build -o bin/memory-palace .
 
 # Index all sources
