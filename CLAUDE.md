@@ -65,12 +65,11 @@ Blocked domains and title substrings live in `extractors/blocklist.go`. Run
 
 ---
 
-## Launchd Services (gray-box)
+## Launchd Services
 
-- `com.kashif.memory-palace` — hourly indexer via `run-memory-palace.sh`
-- `com.kashif.memory-palace-web` — web server (`--serve --port 7703`)
-- `com.kashif.memory-tunnel` — Cloudflare tunnel → localhost:7703 → memory.kashifshah.net
-- `com.kashif.clipboard-monitor` — clipboard-monitor.py with `CLIPBOARD_MACHINE=gray-box`
+- `net.kashifshah.memory-palace` — hourly indexer (installed via `scripts/install-memory-palace.sh`)
+- `net.kashifshah.memory-palace-web` — web server (`--serve --port 7703`)
+- `net.kashifshah.clipboard-monitor` — clipboard-monitor.py (installed via `scripts/install-clipboard-monitor.sh`)
 
 ---
 

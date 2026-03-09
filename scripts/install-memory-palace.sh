@@ -12,18 +12,18 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BINARY="$PROJECT_DIR/bin/memory-palace"
 BUNDLE_APP="$HOME/Applications/MemoryPalace.app"
 BUNDLE_BINARY="$BUNDLE_APP/Contents/MacOS/memory-palace"
-BUNDLE_ID="com.kashif.memory-palace"
+BUNDLE_ID="net.kashifshah.memory-palace"
 DB="$PROJECT_DIR/data/memory.db"
 
-INDEXER_LABEL="com.kashif.memory-palace"
-WEB_LABEL="com.kashif.memory-palace-web"
+INDEXER_LABEL="net.kashifshah.memory-palace"
+WEB_LABEL="net.kashifshah.memory-palace-web"
 INDEXER_PLIST="$HOME/Library/LaunchAgents/${INDEXER_LABEL}.plist"
 WEB_PLIST="$HOME/Library/LaunchAgents/${WEB_LABEL}.plist"
 
-# claude-control run wrapper (sends Zulip notifications after each run).
-# Falls back to running the bundle binary directly if not present.
-CLAUDE_CONTROL_DIR="$HOME/Projects/claude-control"
-RUN_WRAPPER="$CLAUDE_CONTROL_DIR/scripts/run-memory-palace.sh"
+# Optional run wrapper — can provide pre/post-indexing hooks (e.g. notifications).
+# Set RUN_WRAPPER env var to a script path before running the installer, or leave
+# unset to run the bundle binary directly.
+RUN_WRAPPER="${RUN_WRAPPER:-}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
@@ -49,7 +49,7 @@ cat > "$BUNDLE_APP/Contents/Info.plist" << 'PLISTEOF'
     <key>CFBundleExecutable</key>
     <string>memory-palace</string>
     <key>CFBundleIdentifier</key>
-    <string>com.kashif.memory-palace</string>
+    <string>net.kashifshah.memory-palace</string>
     <key>CFBundleName</key>
     <string>Memory Palace</string>
     <key>CFBundleVersion</key>
@@ -68,25 +68,26 @@ chmod +x "$BUNDLE_BINARY"
 # Ad-hoc signing is not trusted by TCC for FDA; a real cert is required.
 # After signing, the user must toggle FDA off/on in System Settings once to
 # refresh the csreq stored in system TCC to match the new signature.
-SIGNING_CERT="Apple Development: Kashif Shah (RWPECCHSNL)"
-if security find-identity -v -p codesigning | grep -q "$SIGNING_CERT" 2>/dev/null; then
+SIGNING_CERT=$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)"/\1/')
+if [ -n "$SIGNING_CERT" ]; then
     codesign --sign "$SIGNING_CERT" --force --deep "$BUNDLE_APP" 2>/dev/null
-    ok "~/Applications/MemoryPalace.app created and signed (Apple Development)"
+    ok "~/Applications/MemoryPalace.app created and signed ($SIGNING_CERT)"
 else
     codesign --sign - --force --deep "$BUNDLE_APP" 2>/dev/null
-    warn "Apple Development cert not found — ad-hoc signed (FDA toggle refresh required)"
+    warn "No Apple Development cert found — ad-hoc signed (FDA toggle refresh required)"
 fi
 
 # ── 3. Check / grant Full Disk Access ────────────────────────────────────────
 bold "3. Full Disk Access"
 
 check_fda() {
-    local sys_val
-    sys_val=$(sudo /usr/bin/sqlite3 \
-        "/Library/Application Support/com.apple.TCC/TCC.db" \
-        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client='$BUNDLE_ID';" \
-        2>/dev/null || echo "")
-    [ "$sys_val" = "2" ]
+    # Try reading a protected file — succeeds only if FDA is granted.
+    # This works for any bundle ID and doesn't require sudo.
+    /usr/bin/sqlite3 \
+        "$HOME/Library/Safari/History.db" \
+        "SELECT 1 LIMIT 1;" \
+        >/dev/null 2>&1
 }
 
 if check_fda; then
@@ -94,38 +95,26 @@ if check_fda; then
 else
     warn "Full Disk Access not yet granted"
     echo ""
-    echo "  Opening System Settings → Privacy & Security → Full Disk Access"
-    echo ""
-    echo "  Steps:"
-    echo "    1. Click the lock icon and authenticate"
-    echo "    2. Click +"
-    echo "    3. Navigate to ~/Applications and select MemoryPalace"
-    echo "    4. Toggle it ON"
-    echo ""
     open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-    echo "  Waiting for FDA grant (checking every 3s)..."
-    echo "  Press Ctrl+C to skip and grant FDA manually later."
-    echo ""
-    ATTEMPTS=0
-    while ! check_fda; do
-        sleep 3
-        ATTEMPTS=$((ATTEMPTS + 1))
-        if [ $((ATTEMPTS % 10)) -eq 0 ]; then
-            echo "  Still waiting... (grant FDA to 'Memory Palace' in System Settings)"
-        fi
-    done
-    ok "Full Disk Access granted"
+    # Native dialog so the user can confirm without needing a terminal stdin.
+    osascript -e 'display dialog "Memory Palace needs Full Disk Access.\n\n1. Click the lock icon and authenticate\n2. Find Memory Palace in the list — or click + and select ~/Applications/MemoryPalace.app\n3. Toggle it ON\n\nClick OK when done (or Cancel to skip)." buttons {"Skip", "OK"} default button "OK" with title "Memory Palace Installer"' \
+        >/dev/null 2>&1 || true
+    if check_fda; then
+        ok "Full Disk Access granted"
+    else
+        warn "FDA not detected — continuing anyway. Re-run installer if indexing fails."
+    fi
 fi
 
 # ── 4. Install launchd plists ─────────────────────────────────────────────────
 bold "4. Installing launchd plists"
 
-if [ -f "$RUN_WRAPPER" ]; then
+if [ -n "$RUN_WRAPPER" ] && [ -f "$RUN_WRAPPER" ]; then
     INDEXER_PROGRAM="$RUN_WRAPPER"
-    info "Indexer: run wrapper with Zulip notifications"
+    info "Indexer: using run wrapper: $RUN_WRAPPER"
 else
     INDEXER_PROGRAM="$BUNDLE_BINARY"
-    warn "claude-control not found — running bundle binary directly (no Zulip notifications)"
+    info "Indexer: running bundle binary directly"
 fi
 
 cat > "$INDEXER_PLIST" << PLISTEOF

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Wrapper for memory-palace web server.
 # Sources .dev.vars so env config stays out of the launchd plist.
-# Called by com.kashif.memory-palace-web launchd agent.
+# Called by net.kashifshah.memory-palace-web launchd agent.
 
 set -euo pipefail
 

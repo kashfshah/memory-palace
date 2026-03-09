@@ -6,7 +6,7 @@
     <key>CFBundleExecutable</key>
     <string>memory-palace</string>
     <key>CFBundleIdentifier</key>
-    <string>com.kashif.memory-palace</string>
+    <string>net.kashifshah.memory-palace</string>
     <key>CFBundleName</key>
     <string>Memory Palace</string>
     <key>CFBundleVersion</key>
