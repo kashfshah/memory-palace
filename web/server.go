@@ -66,9 +66,9 @@ func New(dbPath string, port int, opts ...Option) *Server {
 	return s
 }
 
-// Start launches the web server and background indexer.
+// Start launches the web server and background DB watcher.
 func (s *Server) Start() error {
-	go s.runIndexer()
+	go s.runWatcher()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealthPage)

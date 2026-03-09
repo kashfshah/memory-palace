@@ -2,14 +2,11 @@ package web
 
 import (
 	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
-
-	"github.com/kashfshah/memory-palace/extractors"
-	"github.com/kashfshah/memory-palace/store"
 )
 
 // IndexUpdate is the SSE payload pushed to browsers when the index changes.
@@ -89,20 +86,13 @@ func (c *statsCache) invalidate() {
 	c.mu.Unlock()
 }
 
-// SourceStatus records the outcome of the most recent background index attempt
-// for a single source. Exposed via /api/health.
+// SourceStatus records the watcher state. Exposed via /api/health.
 type SourceStatus struct {
-	LastRun   time.Time `json:"last_run,omitempty"`
-	LastAdded int       `json:"last_added"`
-	Error     string    `json:"error,omitempty"`
-	OK        bool      `json:"ok"`
+	LastRun    time.Time `json:"last_run,omitempty"`
+	LastChange time.Time `json:"last_change,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	OK         bool      `json:"ok"`
 }
-
-// fastSources are re-indexed every 30 seconds — cheap, low-latency reads.
-var fastSources = []string{"knowledgec", "safari_open_tabs", "safari_icloud_tabs"}
-
-// mediumSources are re-indexed every 5 minutes.
-var mediumSources = []string{"safari_history", "calendar", "reminders", "notes", "safari_reading_list"}
 
 // handleEvents serves the SSE stream at /api/events.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -145,77 +135,52 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// runIndexer starts background indexing. Called as a goroutine from Start().
-func (s *Server) runIndexer() {
-	fast := time.NewTicker(30 * time.Second)
-	medium := time.NewTicker(5 * time.Minute)
-	defer fast.Stop()
-	defer medium.Stop()
+// runWatcher polls memory.db mtime every 15s and broadcasts indexUpdate whenever
+// the dedicated indexer process has written new data. No TCC permissions needed —
+// the web server only stats its own database file.
+func (s *Server) runWatcher() {
+	var lastMod time.Time
 
-	// Warm medium sources once shortly after startup.
-	time.AfterFunc(8*time.Second, func() { s.indexSources(mediumSources) })
-
-	for {
-		select {
-		case <-fast.C:
-			s.indexSources(fastSources)
-		case <-medium.C:
-			s.indexSources(mediumSources)
-		}
+	// Capture initial mtime without broadcasting.
+	if fi, err := os.Stat(s.dbPath); err == nil {
+		lastMod = fi.ModTime()
 	}
-}
 
-func (s *Server) indexSources(sources []string) {
-	db, err := store.Open(s.dbPath)
-	if err != nil {
-		log.Printf("live: open db: %v", err)
-		return
-	}
-	defer db.Close()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 
-	anyAdded := false
-	for _, src := range sources {
-		ext, ok := extractors.Registry[src]
-		if !ok {
+	for range ticker.C {
+		fi, err := os.Stat(s.dbPath)
+		now := time.Now()
+
+		if err != nil {
+			log.Printf("watcher: stat %s: %v", s.dbPath, err)
+			s.statusMu.Lock()
+			s.sourceStatus["watcher"] = SourceStatus{LastRun: now, OK: false, Error: err.Error()}
+			s.statusMu.Unlock()
 			continue
 		}
 
-		ss := SourceStatus{LastRun: time.Now()}
-		records, err := ext.Extract()
-		switch {
-		case errors.Is(err, extractors.ErrNotConfigured):
-			ss.OK = false
-			ss.Error = "not configured"
-		case err != nil:
-			ss.OK = false
-			ss.Error = err.Error()
-			log.Printf("live: %s extract: %v", src, err)
-		default:
-			records = extractors.SanitizeRecords(records)
-			n, upsertErr := db.Upsert(src, records)
-			if upsertErr != nil {
-				ss.OK = false
-				ss.Error = upsertErr.Error()
-				log.Printf("live: %s upsert: %v", src, upsertErr)
-			} else {
-				ss.OK = true
-				ss.LastAdded = n
-				if n > 0 {
-					anyAdded = true
-					s.hub.broadcast(IndexUpdate{Source: src, Added: n})
-				}
-			}
-		}
+		changed := fi.ModTime().After(lastMod)
 
 		s.statusMu.Lock()
-		s.sourceStatus[src] = ss
+		prev := s.sourceStatus["watcher"]
+		s.sourceStatus["watcher"] = SourceStatus{
+			LastRun:    now,
+			LastChange: func() time.Time {
+				if changed {
+					return fi.ModTime()
+				}
+				return prev.LastChange
+			}(),
+			OK: true,
+		}
 		s.statusMu.Unlock()
-	}
 
-	if anyAdded {
-		s.sCache.invalidate()
-		if err := db.RebuildFTS(); err != nil {
-			log.Printf("live: FTS rebuild: %v", err)
+		if changed {
+			lastMod = fi.ModTime()
+			s.sCache.invalidate()
+			s.hub.broadcast(IndexUpdate{Source: "indexer", Added: 0})
 		}
 	}
 }
