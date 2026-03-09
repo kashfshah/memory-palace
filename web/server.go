@@ -71,6 +71,7 @@ func (s *Server) Start() error {
 	go s.runIndexer()
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/health", s.handleHealthPage)
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/search", s.handleSearch)
 	mux.HandleFunc("/api/stats", s.handleStats)
@@ -135,6 +136,11 @@ func (s *Server) openDBOrJSON(w http.ResponseWriter, emptyJSON []byte) (*sql.DB,
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(indexHTML))
+}
+
+func (s *Server) handleHealthPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(healthHTML))
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
