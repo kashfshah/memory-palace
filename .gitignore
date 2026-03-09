@@ -1,0 +1,16 @@
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.log
+data/.last-counts
+data/psh-last-watermark.json
+data/daily-total-*.state
+data/zotero-cleanup/
+bin/
+certs/
+*.pem
+.env
+server.log
+memory-palace
+data/.last-counts*
+data/.last-feed
