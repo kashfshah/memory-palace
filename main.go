@@ -35,6 +35,7 @@ func main() {
 	authUser := flag.String("auth-user", "", "Basic auth username (required with --tls-cert)")
 	authPass := flag.String("auth-pass", "", "Basic auth password (or MP_AUTH_PASS env)")
 	migrateFlag := flag.Bool("migrate-to-zotero", false, "Export Safari bookmarks as Zotero RDF for import")
+	importZoteroFlag := flag.Bool("import-to-zotero", false, "Import safari_bookmarks, safari_reading_list, and news_saved into Zotero via local API (requires Zotero open)")
 	dryRunFlag := flag.Bool("dry-run", false, "Show what would happen without saving")
 	batchFlag := flag.Int("batch", 0, "Max items per batch (0 = all)")
 	cleanupFlag := flag.Bool("zotero-cleanup", false, "Generate Zotero cleanup scripts (JS for Zotero console)")
@@ -153,6 +154,13 @@ func main() {
 			if err := db.RebuildFTS(); err != nil {
 				log.Printf("WARN: FTS rebuild failed: %v", err)
 			}
+		}
+		return
+	}
+
+	if *importZoteroFlag {
+		if err := runZoteroImport(*dbPath, *dryRunFlag, *batchFlag); err != nil {
+			log.Fatalf("import-to-zotero failed: %v", err)
 		}
 		return
 	}

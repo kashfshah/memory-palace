@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -145,6 +146,184 @@ func loadSafariBookmarks(dbPath string) ([]bookmark, error) {
 		bookmarks = append(bookmarks, b)
 	}
 	return bookmarks, nil
+}
+
+// loadBySource reads article-like records from memory.db for a given source.
+// Filters out image files, binary assets, and CDN media URLs that are not
+// worth adding to Zotero as bibliographic items.
+func loadBySource(dbPath, source string) ([]bookmark, error) {
+	conn, err := sql.Open("sqlite", dbPath+"?mode=ro")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	rows, err := conn.Query(`
+		SELECT COALESCE(title,''), COALESCE(url,'')
+		FROM memory
+		WHERE source = ?
+		  AND url <> ''
+		  AND url LIKE 'http%'
+		  AND url NOT LIKE '%.jpg'  AND url NOT LIKE '%.jpg?%'
+		  AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.jpeg?%'
+		  AND url NOT LIKE '%.png'  AND url NOT LIKE '%.png?%'
+		  AND url NOT LIKE '%.gif'  AND url NOT LIKE '%.gif?%'
+		  AND url NOT LIKE '%.svg'  AND url NOT LIKE '%.svg?%'
+		  AND url NOT LIKE '%.webp' AND url NOT LIKE '%.webp?%'
+		  AND url NOT LIKE '%.mp4'  AND url NOT LIKE '%.mp3'
+		  AND url NOT LIKE '%.pdf'
+		  AND url NOT LIKE '%/renders/%'
+		  AND url NOT LIKE '%/assets/img/%'
+		  AND url NOT LIKE '%/cms/asset/%'
+		  AND url NOT LIKE '%githubassets.com%'
+		  AND url NOT LIKE '%miro.medium.com%'
+		  AND url NOT LIKE '%/imrs.php%'
+		  AND url NOT LIKE '%/og-card%'
+		  AND url NOT LIKE '%/resize:fit:%'
+		ORDER BY timestamp DESC
+	`, source)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []bookmark
+	for rows.Next() {
+		var b bookmark
+		rows.Scan(&b.Title, &b.URL)
+		items = append(items, b)
+	}
+	return items, nil
+}
+
+// runZoteroImport imports safari_bookmarks, safari_reading_list, and news_saved
+// from memory.db into Zotero via the local connector API (port 23119).
+// Requires Zotero to be open. Deduplicates against existing Zotero items by URL.
+func runZoteroImport(memoryDBPath string, dryRun bool, batchSize int) error {
+	home, _ := os.UserHomeDir()
+	zoteroDBPath := home + "/Zotero/zotero.sqlite"
+
+	// Check Zotero is running before doing any work.
+	zc := newZoteroConnector()
+	if !dryRun {
+		if err := zc.ping(); err != nil {
+			return err
+		}
+	}
+
+	// Snapshot Zotero SQLite to get existing URLs for dedup.
+	fmt.Println("Loading existing Zotero URLs for deduplication...")
+	snap, cleanup, err := snapshotZoteroDB(zoteroDBPath)
+	if err != nil {
+		return fmt.Errorf("snapshot zotero db: %w", err)
+	}
+	defer cleanup()
+
+	existing, err := loadExistingZoteroURLs(snap)
+	if err != nil {
+		return fmt.Errorf("load existing URLs: %w", err)
+	}
+	fmt.Printf("  %d existing URLs in Zotero\n", len(existing))
+
+	// Load candidates from all three intentional-save sources.
+	sources := []string{"safari_bookmarks", "safari_reading_list", "news_saved"}
+	var allCandidates []bookmark
+	for _, src := range sources {
+		items, err := loadBySource(memoryDBPath, src)
+		if err != nil {
+			fmt.Printf("  WARN: %s: %v\n", src, err)
+			continue
+		}
+		fmt.Printf("  %s: %d items\n", src, len(items))
+		allCandidates = append(allCandidates, items...)
+	}
+
+	// Deduplicate against existing Zotero items.
+	var toImport []bookmark
+	seen := make(map[string]bool)
+	for _, b := range allCandidates {
+		norm := normalizeURL(b.URL)
+		if existing[norm] || seen[norm] {
+			continue
+		}
+		seen[norm] = true
+		toImport = append(toImport, b)
+	}
+	fmt.Printf("\n%d new items after deduplication (%d already in Zotero)\n",
+		len(toImport), len(allCandidates)-len(toImport))
+
+	if len(toImport) == 0 {
+		fmt.Println("Nothing to import.")
+		return nil
+	}
+
+	if batchSize > 0 && len(toImport) > batchSize {
+		fmt.Printf("Limiting to batch of %d (use --batch 0 for all)\n", batchSize)
+		toImport = toImport[:batchSize]
+	}
+
+	if dryRun {
+		fmt.Println("\nDRY RUN — nothing saved. Items that would be imported:")
+		for i, b := range toImport {
+			fmt.Printf("  [%d] %s\n      %s\n", i+1, truncate(b.Title, 80), b.URL)
+			if i >= 19 && len(toImport) > 20 {
+				fmt.Printf("  ... and %d more\n", len(toImport)-20)
+				break
+			}
+		}
+		return nil
+	}
+
+	// Convert to Zotero connector item format.
+	items := make([]zoteroImportItem, 0, len(toImport))
+	for _, b := range toImport {
+		items = append(items, zoteroImportItem{
+			ItemType: "webpage",
+			Title:    b.Title,
+			URL:      b.URL,
+			Tags:     []zoteroTag{{Tag: "memory-palace-import"}},
+		})
+	}
+
+	fmt.Printf("Importing %d items to Zotero...\n", len(items))
+	saved, err := zc.saveItems(items)
+	if err != nil {
+		return fmt.Errorf("import failed after %d items: %w", saved, err)
+	}
+	fmt.Printf("Done — %d items added to Zotero.\n", saved)
+	return nil
+}
+
+// snapshotZoteroDB copies the Zotero SQLite DB to /tmp for safe reading.
+func snapshotZoteroDB(dbPath string) (string, func(), error) {
+	dst := os.TempDir() + "/mp-zotero-import.sqlite"
+	if err := copyZoteroFile(dbPath, dst); err != nil {
+		return "", nil, err
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		copyZoteroFile(dbPath+suffix, dst+suffix) //nolint:errcheck
+	}
+	cleanup := func() {
+		os.Remove(dst)
+		os.Remove(dst + "-wal")
+		os.Remove(dst + "-shm")
+	}
+	return dst, cleanup, nil
+}
+
+func copyZoteroFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // runMigration analyzes Safari → Zotero bookmark migration (dry-run only).
