@@ -25,7 +25,14 @@ func (z *Zotero) Extract() ([]store.Record, error) {
 		return nil, fmt.Errorf("zotero db not found at %s", dbPath)
 	}
 
-	conn, err := sql.Open("sqlite", dbPath+"?mode=ro&_pragma=busy_timeout(5000)")
+	// Snapshot before opening so we don't conflict with Zotero's WAL-mode lock.
+	snap, cleanup, err := snapshotDB(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot zotero db: %w", err)
+	}
+	defer cleanup()
+
+	conn, err := sql.Open("sqlite", snap+"?mode=ro")
 	if err != nil {
 		return nil, fmt.Errorf("open zotero db: %w", err)
 	}
