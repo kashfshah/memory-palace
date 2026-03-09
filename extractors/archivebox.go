@@ -16,14 +16,14 @@ import (
 // Configuration via environment variables (all optional; omit to skip):
 //
 //	ARCHIVEBOX_DB             — direct local path to index.sqlite3 (highest priority)
-//	ARCHIVEBOX_SSH_HOST       — SSH host to rsync the DB from (e.g. "cabinet")
+//	ARCHIVEBOX_SSH_HOST       — SSH host to rsync the DB from (e.g. "myserver")
 //	ARCHIVEBOX_SSH_PATH       — path on SSH host (default: /tmp/archivebox-index.sqlite3)
 //	ARCHIVEBOX_INCUS_CONTAINER — Incus container name to pull from before rsyncing
 //	ARCHIVEBOX_INCUS_PATH     — path inside Incus container (e.g. "archivebox/home/archivebox/data/index.sqlite3")
 //
 // Typical local install:   ARCHIVEBOX_DB=/path/to/data/index.sqlite3
 // Typical remote install:  ARCHIVEBOX_SSH_HOST=myserver ARCHIVEBOX_SSH_PATH=/home/archivebox/data/index.sqlite3
-// kashif/cabinet setup:    ARCHIVEBOX_SSH_HOST=cabinet ARCHIVEBOX_INCUS_CONTAINER=archivebox
+// Typical Incus setup:     ARCHIVEBOX_SSH_HOST=myserver ARCHIVEBOX_INCUS_CONTAINER=archivebox
 //                          ARCHIVEBOX_INCUS_PATH=archivebox/home/archivebox/data/index.sqlite3
 type ArchiveBox struct{}
 

@@ -16,10 +16,11 @@ import (
 // archiveBoxFeed finds URLs in Memory Palace (zotero + safari_bookmarks) that
 // ArchiveBox has not yet archived, and submits them for background archiving.
 //
-// ArchiveBox runs in an Incus container on cabinet (i5-3570, 4 cores, 31GB RAM).
 // Archiving consumes significant CPU and disk per URL (wget, singlefile, readability,
-// mercury, screenshots, yt-dlp). The feed monitors cabinet pressure and stops if
+// mercury, screenshots, yt-dlp). The feed monitors host pressure and stops if
 // the machine becomes overloaded.
+//
+// Requires ARCHIVEBOX_SSH_HOST env var pointing to the host running ArchiveBox.
 //
 // Crash safety: ArchiveBox writes every submitted URL to core_snapshot at submission
 // time (before archiving begins). The feed diffs against the live ArchiveBox SQLite,
@@ -28,19 +29,28 @@ import (
 //
 // Progress can be checked via:
 //
-//	ssh cabinet 'tmux capture-pane -t archivebox-feed -p'
+//	ssh $ARCHIVEBOX_SSH_HOST 'tmux capture-pane -t archivebox-feed -p'
 
 const (
 	memoryDBPath    = "../data/memory.db"
 	archiveDBLocal  = "/tmp/archivebox-index.sqlite3"
 	archiveDBRemote = "archivebox/home/archivebox/data/index.sqlite3"
 
-	// Pressure thresholds for cabinet (4-core i5-3570)
+	// Pressure thresholds for the ArchiveBox host
 	maxLoadAvg    = 8.0  // load avg 1-min threshold (2x cores)
 	minFreeDiskGB = 50.0 // minimum free disk in ArchiveBox container
-	minFreeMemMB  = 2048 // minimum free+available RAM on cabinet host
+	minFreeMemMB  = 2048 // minimum free+available RAM on ArchiveBox host
 	defaultBatch  = 0    // 0 = no limit (submit all eligible URLs)
 )
+
+// archiveSSHHost returns the SSH hostname for the ArchiveBox server
+// from the ARCHIVEBOX_SSH_HOST environment variable.
+func archiveSSHHost() string {
+	if h := os.Getenv("ARCHIVEBOX_SSH_HOST"); h != "" {
+		return h
+	}
+	return "archivebox-host"
+}
 
 // skipPatterns filters out URLs that won't archive well.
 var skipPatterns = []string{
@@ -61,24 +71,24 @@ var skipExtensions = []string{
 	".woff", ".woff2", ".ttf", ".eot",
 }
 
-// cabinetPressure holds resource usage readings from cabinet.
-type cabinetPressure struct {
+// hostPressure holds resource usage readings from the ArchiveBox host.
+type hostPressure struct {
 	LoadAvg1   float64
 	FreeMemMB  int
 	FreeDiskGB float64
 }
 
-func (p cabinetPressure) String() string {
+func (p hostPressure) String() string {
 	return fmt.Sprintf("load=%.1f mem=%dMB free disk=%.0fGB free", p.LoadAvg1, p.FreeMemMB, p.FreeDiskGB)
 }
 
 // ok returns true if all pressure readings fall within safe thresholds.
-func (p cabinetPressure) ok() bool {
+func (p hostPressure) ok() bool {
 	return p.LoadAvg1 < maxLoadAvg && p.FreeMemMB > minFreeMemMB && p.FreeDiskGB > minFreeDiskGB
 }
 
 // reason returns a human-readable explanation of which thresholds exceeded.
-func (p cabinetPressure) reason() string {
+func (p hostPressure) reason() string {
 	var reasons []string
 	if p.LoadAvg1 >= maxLoadAvg {
 		reasons = append(reasons, fmt.Sprintf("load %.1f >= %.1f", p.LoadAvg1, maxLoadAvg))
@@ -98,14 +108,14 @@ func runArchiveBoxFeed(dryRun bool, batchSize int) error {
 	}
 
 	// Step 1: Pre-flight pressure check
-	fmt.Println("Checking cabinet pressure...")
+	fmt.Printf("Checking %s pressure...\n", archiveSSHHost())
 	pressure, err := checkCabinetPressure()
 	if err != nil {
-		fmt.Printf("WARNING: could not read cabinet pressure: %v (proceeding cautiously)\n", err)
+		fmt.Printf("WARNING: could not read host pressure: %v (proceeding cautiously)\n", err)
 	} else {
-		fmt.Printf("Cabinet: %s\n", pressure)
+		fmt.Printf("Host: %s\n", pressure)
 		if !pressure.ok() {
-			fmt.Printf("ABORT: cabinet under pressure (%s)\n", pressure.reason())
+			fmt.Printf("ABORT: host under pressure (%s)\n", pressure.reason())
 			fmt.Println("Wait for load to decrease or free resources before feeding.")
 			return nil
 		}
@@ -169,8 +179,8 @@ func runArchiveBoxFeed(dryRun bool, batchSize int) error {
 
 	// Step 8: Check for existing archivebox-feed tmux session
 	if feedSessionActive() {
-		fmt.Println("ABORT: archivebox-feed tmux session already running on cabinet.")
-		fmt.Println("Check progress: ssh cabinet 'tmux capture-pane -t archivebox-feed -p'")
+		fmt.Printf("ABORT: archivebox-feed tmux session already running on %s.\n", archiveSSHHost())
+		fmt.Printf("Check progress: ssh %s 'tmux capture-pane -t archivebox-feed -p'\n", archiveSSHHost())
 		fmt.Println("Wait for it to finish before feeding more URLs.")
 		return nil
 	}
@@ -182,23 +192,23 @@ func runArchiveBoxFeed(dryRun bool, batchSize int) error {
 		return fmt.Errorf("feed to archivebox: %w", err)
 	}
 
-	fmt.Printf("\nSubmitted %d URLs to ArchiveBox (background processing on cabinet).\n", len(toFeed))
-	fmt.Println("Check progress: ssh cabinet 'tmux capture-pane -t archivebox-feed -p'")
+	fmt.Printf("\nSubmitted %d URLs to ArchiveBox (background processing on %s).\n", len(toFeed), archiveSSHHost())
+	fmt.Printf("Check progress: ssh %s 'tmux capture-pane -t archivebox-feed -p'\n", archiveSSHHost())
 	return nil
 }
 
-// checkCabinetPressure reads load average, free memory, and free disk from cabinet.
-func checkCabinetPressure() (cabinetPressure, error) {
-	var p cabinetPressure
+// checkCabinetPressure reads load average, free memory, and free disk from the ArchiveBox host.
+func checkCabinetPressure() (hostPressure, error) {
+	var p hostPressure
 
 	// Single SSH call to read all three metrics
-	cmd := exec.Command("ssh", "cabinet",
+	cmd := exec.Command("ssh", archiveSSHHost(),
 		"cat /proc/loadavg && free -m | awk '/^Mem:/{print $7}' && "+
 			"incus exec archivebox -- df -BG /home/archivebox/data 2>/dev/null | awk 'NR==2{print $4}'",
 	)
 	out, err := cmd.Output()
 	if err != nil {
-		return p, fmt.Errorf("ssh cabinet: %w", err)
+		return p, fmt.Errorf("ssh %s: %w", archiveSSHHost(), err)
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -223,9 +233,9 @@ func checkCabinetPressure() (cabinetPressure, error) {
 	return p, nil
 }
 
-// feedSessionActive returns true if an archivebox-feed tmux session exists on cabinet.
+// feedSessionActive returns true if an archivebox-feed tmux session exists on the ArchiveBox host.
 func feedSessionActive() bool {
-	cmd := exec.Command("ssh", "cabinet", "tmux has-session -t archivebox-feed 2>/dev/null")
+	cmd := exec.Command("ssh", archiveSSHHost(), "tmux has-session -t archivebox-feed 2>/dev/null")
 	return cmd.Run() == nil
 }
 
@@ -267,10 +277,10 @@ func shouldSkipURL(rawURL string) bool {
 	return false
 }
 
-// syncArchiveBoxForFeed pulls the ArchiveBox SQLite DB from cabinet to local /tmp.
+// syncArchiveBoxForFeed pulls the ArchiveBox SQLite DB from the remote host to local /tmp.
 func syncArchiveBoxForFeed() error {
 	remoteTmp := "/tmp/archivebox-index.sqlite3"
-	cmd := exec.Command("ssh", "cabinet",
+	cmd := exec.Command("ssh", archiveSSHHost(),
 		"incus", "file", "pull", archiveDBRemote, remoteTmp,
 	)
 	cmd.Stderr = os.Stderr
@@ -279,7 +289,7 @@ func syncArchiveBoxForFeed() error {
 	}
 
 	cmd = exec.Command("rsync", "-az", "--timeout=30",
-		"cabinet:"+remoteTmp, archiveDBLocal,
+		archiveSSHHost()+":"+remoteTmp, archiveDBLocal,
 	)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -362,7 +372,7 @@ func normalizeURLForFeed(u string) string {
 }
 
 // feedToArchiveBox pushes a URL list into the ArchiveBox container and launches
-// background archiving via tmux on cabinet.
+// background archiving via tmux on the ArchiveBox host.
 func feedToArchiveBox(urls []string) error {
 	timestamp := time.Now().Unix()
 	localTmp := fmt.Sprintf("/tmp/archivebox-feed-%d.txt", timestamp)
@@ -380,15 +390,15 @@ func feedToArchiveBox(urls []string) error {
 	f.Close()
 	defer os.Remove(localTmp)
 
-	// Copy to cabinet host
-	cmd := exec.Command("scp", localTmp, "cabinet:"+remoteTmp)
+	// Copy to ArchiveBox host
+	cmd := exec.Command("scp", localTmp, archiveSSHHost()+":"+remoteTmp)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("scp to cabinet: %w", err)
+		return fmt.Errorf("scp to host: %w", err)
 	}
 
 	// Push into the Incus container's sources directory
-	cmd = exec.Command("ssh", "cabinet",
+	cmd = exec.Command("ssh", archiveSSHHost(),
 		"incus", "file", "push", remoteTmp,
 		"archivebox"+containerSource,
 	)
@@ -397,7 +407,7 @@ func feedToArchiveBox(urls []string) error {
 		return fmt.Errorf("incus file push: %w", err)
 	}
 
-	// Launch archivebox add in a detached tmux session on cabinet.
+	// Launch archivebox add in a detached tmux session on the ArchiveBox host.
 	// This runs in the background — archiving takes minutes to hours.
 	archiveCmd := fmt.Sprintf(
 		"cd /home/archivebox/data && /home/archivebox/.local/bin/archivebox add --parser url_list %s",
@@ -408,7 +418,7 @@ func feedToArchiveBox(urls []string) error {
 			"'incus exec archivebox -- su - archivebox -c \"%s\"'",
 		archiveCmd,
 	)
-	cmd = exec.Command("ssh", "cabinet", tmuxCmd)
+	cmd = exec.Command("ssh", archiveSSHHost(), tmuxCmd)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -416,7 +426,7 @@ func feedToArchiveBox(urls []string) error {
 	}
 
 	// Clean up remote tmp
-	exec.Command("ssh", "cabinet", "rm", "-f", remoteTmp).Run()
+	exec.Command("ssh", archiveSSHHost(), "rm", "-f", remoteTmp).Run()
 
 	return nil
 }
