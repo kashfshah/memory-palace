@@ -115,6 +115,11 @@ func main() {
 		if *authUser != "" && pass != "" {
 			opts = append(opts, web.WithBasicAuth(*authUser, pass))
 		}
+		if *embedBin != "" {
+			if _, err := os.Stat(*embedBin); err == nil {
+				opts = append(opts, web.WithEmbedBin(*embedBin))
+			}
+		}
 		srv := web.New(*dbPath, *portFlag, opts...)
 		log.Fatal(srv.Start())
 	}

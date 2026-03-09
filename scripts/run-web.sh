@@ -17,4 +17,4 @@ if [ -f "$PROJECT_DIR/.dev.vars" ]; then
     set +o allexport
 fi
 
-exec "$BUNDLE_BINARY" --serve --port 7703 --db "$DB"
+exec "$BUNDLE_BINARY" --serve --port 7703 --db "$DB" --embed-bin "$PROJECT_DIR/bin/mp-embed"

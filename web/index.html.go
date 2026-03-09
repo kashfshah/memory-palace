@@ -99,6 +99,20 @@ const indexHTML = `<!DOCTYPE html>
     transition: background 0.15s;
   }
   .search-bar button:hover { background: var(--accent); color: #000; }
+  #search-mode-btn {
+    padding: 0.6rem 0.85rem; font-size: 0.78rem; font-weight: 500;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+    letter-spacing: 0.02em;
+  }
+  #search-mode-btn.semantic-on {
+    background: rgba(88,166,255,0.12); border-color: var(--accent-dim);
+    color: var(--accent);
+  }
+  #search-mode-btn:hover { background: var(--surface); color: var(--text); }
+  .similarity-badge {
+    font-size: 0.68rem; color: var(--text-faint); margin-left: 0.4rem;
+    font-variant-numeric: tabular-nums;
+  }
 
   /* Tabs */
   .tabs {
@@ -380,6 +394,7 @@ const indexHTML = `<!DOCTYPE html>
       <option value="knowledgec">App Usage</option>
       <option value="clipboard">Clipboard</option>
     </select>
+    <button id="search-mode-btn" onclick="toggleSearchMode()" title="Toggle semantic (vector) search">FTS</button>
     <button onclick="doSearch()">Search</button>
   </div>
 
@@ -573,13 +588,23 @@ function searchTag(el) {
   doSearch();
 }
 
+let semanticMode = false;
+
+function toggleSearchMode() {
+  semanticMode = !semanticMode;
+  const btn = $('#search-mode-btn');
+  btn.textContent = semanticMode ? '✦ Semantic' : 'FTS';
+  btn.classList.toggle('semantic-on', semanticMode);
+  if ($('#search-input').value.trim()) doSearch();
+}
+
 async function doSearch() {
   const q = $('#search-input').value.trim();
   const source = $('#source-filter').value;
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   if (source) params.set('source', source);
-  params.set('limit', '100');
+  params.set('limit', '50');
 
   updateHash({tab: 'results', q: q || undefined, source: source || undefined});
 
@@ -588,7 +613,8 @@ async function doSearch() {
   activateTab('results');
 
   try {
-    const data = await apiFetch('/api/search?' + params);
+    const endpoint = semanticMode ? '/api/search/semantic' : '/api/search';
+    const data = await apiFetch(endpoint + '?' + params);
     renderResults(data || [], q);
   } catch (e) {
     showError(el, 'Search failed: ' + e.message, 'doSearch()');
@@ -622,6 +648,7 @@ function renderResults(results, query) {
     let html = '<div class="result">' +
       '<div class="result-header">' +
         '<span class="result-source src-' + r.source + '" onclick="filterSource(\'' + r.source + '\')" style="cursor:pointer" title="Browse ' + formatSource(r.source) + '">' + formatSource(r.source) + '</span>' +
+        (r.similarity ? '<span class="similarity-badge">' + r.similarity.toFixed(3) + '</span>' : '') +
         '<span class="result-time" title="' + r.time + '">' + relativeTime(r.unix) + '</span>' +
       '</div>' +
       '<div class="result-title">' + titleContent + '</div>';

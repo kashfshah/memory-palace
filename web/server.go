@@ -28,6 +28,7 @@ type Server struct {
 	keyFile      string
 	authUser     string
 	authPass     string
+	embedBin     string // path to mp-embed binary; empty disables semantic search
 	hub          *liveHub
 	sCache       statsCache
 	statusMu     sync.RWMutex
@@ -43,6 +44,13 @@ func WithTLS(certFile, keyFile string) Option {
 	return func(s *Server) {
 		s.certFile = certFile
 		s.keyFile = keyFile
+	}
+}
+
+// WithEmbedBin enables semantic search using the given mp-embed binary path.
+func WithEmbedBin(path string) Option {
+	return func(s *Server) {
+		s.embedBin = path
 	}
 }
 
@@ -77,6 +85,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/health", s.handleHealthPage)
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/search", s.handleSearch)
+	if s.embedBin != "" {
+		mux.HandleFunc("/api/search/semantic", s.handleSearchSemantic)
+	}
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/domains", s.handleDomains)
