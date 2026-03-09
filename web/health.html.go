@@ -223,7 +223,7 @@ function renderDB(db) {
 function renderIndex(idx) {
   const lastBuild = idx.last_build ? relTime(idx.last_build) + ' <span style="color:var(--text-faint);font-size:0.7rem">(' + new Date(idx.last_build).toLocaleString() + ')</span>' : '—';
   const meta = '<div class="index-meta">' +
-    '<div class="meta-item"><div class="meta-val">' + fmtNum(idx.total) + '</div><div class="meta-lbl">Total Records</div></div>' +
+    '<div class="meta-item"><a href="/#tab=results" style="text-decoration:none;color:inherit"><div class="meta-val">' + fmtNum(idx.total) + '</div><div class="meta-lbl">Total Records ›</div></a></div>' +
     '<div class="meta-item"><div class="meta-val" style="font-size:1rem">' + lastBuild + '</div><div class="meta-lbl">Last Build</div></div>' +
   '</div>';
 
@@ -250,11 +250,12 @@ function renderIndex(idx) {
   const maxCount = Math.max(1, ...Object.values(bySrc));
   const sorted = Object.entries(bySrc).sort((a, b) => b[1] - a[1]);
   const bars = sorted.map(([src, count]) =>
-    '<div class="src-row">' +
+    '<a href="/#tab=results&source=' + encodeURIComponent(src) + '" style="text-decoration:none;color:inherit">' +
+    '<div class="src-row" style="cursor:pointer" title="Browse ' + srcLabel(src) + '">' +
       '<div class="src-name">' + srcLabel(src) + '</div>' +
       '<div class="src-bar-wrap"><div class="src-bar" style="width:' + (count / maxCount * 100).toFixed(1) + '%"></div></div>' +
       '<div class="src-count">' + fmtNum(count) + '</div>' +
-    '</div>'
+    '</div></a>'
   ).join('');
 
   return '<div class="card">' +
@@ -442,7 +443,7 @@ function renderIndexer(sources, hours) {
 
       rows += '<tr>' +
         '<td>' + dot + '</td>' +
-        '<td class="src-label">' + srcLabel(src) + '</td>' +
+        '<td class="src-label"><a href="/#tab=results&source=' + encodeURIComponent(src) + '" style="text-decoration:none;color:inherit" title="Browse ' + srcLabel(src) + '">' + srcLabel(src) + ' ›</a></td>' +
         '<td class="time-dim">' + relTime(s.last_run) + '</td>' +
         '<td>' + totalCell + '</td>' +
         '<td>' + deltaCell + '</td>' +
