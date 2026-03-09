@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kashfshah/memory-palace/embedder"
 	"github.com/kashfshah/memory-palace/store"
 )
 
@@ -24,15 +25,18 @@ const protocolVersion = "2024-11-05"
 
 // Server is the MCP stdio server.
 type Server struct {
-	dbPath string
-	out    *json.Encoder
+	dbPath   string
+	embedBin string // path to mp-embed binary; empty disables search_semantic
+	out      *json.Encoder
 }
 
 // New creates a Server that reads from stdin and writes to stdout.
-func New(dbPath string) *Server {
+// embedBin is the path to the mp-embed binary; pass "" to omit search_semantic.
+func New(dbPath, embedBin string) *Server {
 	return &Server{
-		dbPath: dbPath,
-		out:    json.NewEncoder(os.Stdout),
+		dbPath:   dbPath,
+		embedBin: embedBin,
+		out:      json.NewEncoder(os.Stdout),
 	}
 }
 
@@ -98,53 +102,74 @@ func (s *Server) handleInitialize(id json.RawMessage) {
 }
 
 func (s *Server) handleToolsList(id json.RawMessage) {
-	s.writeResult(id, map[string]any{
-		"tools": []map[string]any{
-			{
-				"name":        "search",
-				"description": "Search your personal memory index (Safari history, bookmarks, Calendar, Notes, Reminders, Zotero, clipboard) using full-text search.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"query": map[string]any{
-							"type":        "string",
-							"description": "Full-text search query. Supports FTS5 syntax: quotes for phrases, AND/OR/NOT, prefix*.",
-						},
-						"limit": map[string]any{
-							"type":        "number",
-							"description": "Maximum number of results to return (default 20, max 100).",
-						},
+	tools := []map[string]any{
+		{
+			"name":        "search",
+			"description": "Search your personal memory index (Safari history, bookmarks, Calendar, Notes, Reminders, Zotero, clipboard) using full-text search.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Full-text search query. Supports FTS5 syntax: quotes for phrases, AND/OR/NOT, prefix*.",
 					},
-					"required": []string{"query"},
-				},
-			},
-			{
-				"name":        "get_recent",
-				"description": "Get the most recently indexed entries, optionally filtered by source.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"source": map[string]any{
-							"type":        "string",
-							"description": "Filter by source: safari_history, safari_bookmarks, safari_reading_list, calendar, notes, reminders, zotero, clipboard, archivebox, knowledgec.",
-						},
-						"limit": map[string]any{
-							"type":        "number",
-							"description": "Maximum number of results to return (default 20, max 100).",
-						},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Maximum number of results to return (default 20, max 100).",
 					},
 				},
+				"required": []string{"query"},
 			},
-			{
-				"name":        "get_stats",
-				"description": "Get summary statistics for the memory index: total records, per-source counts, oldest and newest entries, last index time.",
-				"inputSchema": map[string]any{
-					"type":       "object",
-					"properties": map[string]any{},
+		},
+		{
+			"name":        "get_recent",
+			"description": "Get the most recently indexed entries, optionally filtered by source.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"source": map[string]any{
+						"type":        "string",
+						"description": "Filter by source: safari_history, safari_bookmarks, safari_reading_list, calendar, notes, reminders, zotero, clipboard, archivebox, knowledgec.",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Maximum number of results to return (default 20, max 100).",
+					},
 				},
 			},
 		},
-	})
+		{
+			"name":        "get_stats",
+			"description": "Get summary statistics for the memory index: total records, per-source counts, oldest and newest entries, last index time.",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+	}
+
+	if s.embedBin != "" {
+		tools = append(tools, map[string]any{
+			"name":        "search_semantic",
+			"description": "Search your memory index using semantic similarity (vector embeddings). Finds conceptually related content even without exact keyword matches. Requires records to be pre-embedded with --embed.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Natural language query. No special syntax needed.",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Maximum number of results to return (default 10, max 50).",
+					},
+				},
+				"required": []string{"query"},
+			},
+		})
+	}
+
+	s.writeResult(id, map[string]any{"tools": tools})
 }
 
 func (s *Server) handleToolsCall(id json.RawMessage, rawParams json.RawMessage) {
@@ -157,6 +182,8 @@ func (s *Server) handleToolsCall(id json.RawMessage, rawParams json.RawMessage) 
 	switch p.Name {
 	case "search":
 		s.toolSearch(id, p.Arguments)
+	case "search_semantic":
+		s.toolSearchSemantic(id, p.Arguments)
 	case "get_recent":
 		s.toolGetRecent(id, p.Arguments)
 	case "get_stats":
@@ -283,6 +310,114 @@ func (s *Server) toolGetStats(id json.RawMessage) {
 	}
 
 	s.writeToolText(id, sb.String())
+}
+
+func (s *Server) toolSearchSemantic(id json.RawMessage, args json.RawMessage) {
+	if s.embedBin == "" {
+		s.writeToolError(id, "semantic search not configured (no embed binary)")
+		return
+	}
+
+	var a struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil || a.Query == "" {
+		s.writeToolError(id, "search_semantic requires a non-empty query")
+		return
+	}
+	if a.Limit <= 0 {
+		a.Limit = 10
+	}
+	if a.Limit > 50 {
+		a.Limit = 50
+	}
+
+	// Embed the query.
+	emb, err := embedder.New(s.embedBin)
+	if err != nil {
+		s.writeToolError(id, "start embedder: "+err.Error())
+		return
+	}
+	defer emb.Close()
+
+	queryVec, err := emb.Embed(a.Query)
+	if err != nil {
+		s.writeToolError(id, "embed query: "+err.Error())
+		return
+	}
+
+	// Load all stored embeddings and rank by cosine similarity.
+	db, err := openDB(s.dbPath)
+	if err != nil {
+		s.writeToolError(id, "open db: "+err.Error())
+		return
+	}
+	defer db.Close()
+
+	stored, err := db.LoadEmbeddings()
+	if err != nil {
+		s.writeToolError(id, "load embeddings: "+err.Error())
+		return
+	}
+	if len(stored) == 0 {
+		s.writeToolText(id, "No embeddings found. Run: memory-palace --embed --db <path>")
+		return
+	}
+
+	type scored struct {
+		id    int64
+		score float32
+	}
+	scores := make([]scored, len(stored))
+	for i, sv := range stored {
+		scores[i] = scored{sv.ID, embedder.Cosine(queryVec, sv.Vec)}
+	}
+	// Partial sort: find top-N without full sort.
+	topN := a.Limit
+	if topN > len(scores) {
+		topN = len(scores)
+	}
+	for i := 0; i < topN; i++ {
+		maxIdx := i
+		for j := i + 1; j < len(scores); j++ {
+			if scores[j].score > scores[maxIdx].score {
+				maxIdx = j
+			}
+		}
+		scores[i], scores[maxIdx] = scores[maxIdx], scores[i]
+	}
+
+	ids := make([]int64, topN)
+	for i := range ids {
+		ids[i] = scores[i].id
+	}
+
+	records, err := db.RecordsByIDs(ids)
+	if err != nil {
+		s.writeToolError(id, "fetch records: "+err.Error())
+		return
+	}
+
+	var sb strings.Builder
+	if len(records) == 0 {
+		sb.WriteString("No embedded results found.")
+	} else {
+		fmt.Fprintf(&sb, "%d semantic result(s) for %q:\n\n", len(records), a.Query)
+		for i, r := range records {
+			fmt.Fprintf(&sb, "%d. [%s] %s — %s  (similarity: %.3f)\n",
+				i+1, r.Source, r.Timestamp.Format("2006-01-02"), r.Title, scores[i].score)
+			if r.URL != "" {
+				fmt.Fprintf(&sb, "   %s\n", r.URL)
+			}
+		}
+	}
+	s.writeToolText(id, sb.String())
+}
+
+// openDB opens the memory DB read-only for MCP queries.
+func openDB(dbPath string) (*store.DB, error) {
+	return store.Open(dbPath)
 }
 
 // ── Response helpers ──────────────────────────────────────────────────────────

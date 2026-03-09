@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kashfshah/memory-palace/embedder"
 	"github.com/kashfshah/memory-palace/enrichment"
 	"github.com/kashfshah/memory-palace/extractors"
 	"github.com/kashfshah/memory-palace/mcp"
 	"github.com/kashfshah/memory-palace/store"
+	"github.com/kashfshah/memory-palace/summarizer"
 	"github.com/kashfshah/memory-palace/web"
 )
 
@@ -38,14 +40,34 @@ func main() {
 	cleanupFlag := flag.Bool("zotero-cleanup", false, "Generate Zotero cleanup scripts (JS for Zotero console)")
 	feedFlag := flag.Bool("feed", false, "Feed new Memory Palace URLs to ArchiveBox")
 	feedBatch := flag.Int("feed-batch", 0, "Max URLs to feed per run (0 = no limit, submit all eligible)")
-	sanitizeFlag := flag.Bool("sanitize", false, "Immediately delete all blocked records from the DB (runs without re-extracting)")
-	mcpFlag := flag.Bool("mcp", false, "Start MCP stdio server (for Claude Desktop and other MCP clients)")
+	sanitizeFlag  := flag.Bool("sanitize", false, "Immediately delete all blocked records from the DB (runs without re-extracting)")
+	mcpFlag       := flag.Bool("mcp", false, "Start MCP stdio server (for Claude Desktop and other MCP clients)")
+	embedFlag     := flag.Bool("embed", false, "Embed unembedded records using local NLEmbedding model")
+	embedLimit    := flag.Int("embed-limit", 500, "Max records to embed per run")
+	embedBin      := flag.String("embed-bin", "bin/mp-embed", "Path to mp-embed binary")
+	summarizeFlag := flag.Bool("summarize-local", false, "Summarize records locally using FoundationModels")
+	summarizeLimit := flag.Int("summarize-limit", 50, "Max records to summarize per run")
+	summarizeBin  := flag.String("summarize-bin", "bin/mp-summarize", "Path to mp-summarize binary")
 	flag.Parse()
 
 	if *mcpFlag {
-		srv := mcp.New(*dbPath)
+		srv := mcp.New(*dbPath, *embedBin)
 		if err := srv.Run(); err != nil {
 			log.Fatalf("mcp: %v", err)
+		}
+		return
+	}
+
+	if *embedFlag {
+		if err := runEmbed(*dbPath, *embedBin, *embedLimit, *verbose); err != nil {
+			log.Fatalf("embed: %v", err)
+		}
+		return
+	}
+
+	if *summarizeFlag {
+		if err := runSummarizeLocal(*dbPath, *summarizeBin, *summarizeLimit, *verbose); err != nil {
+			log.Fatalf("summarize-local: %v", err)
 		}
 		return
 	}
@@ -392,4 +414,117 @@ func indexOf(s string, c byte) int {
 		}
 	}
 	return -1
+}
+
+func runEmbed(dbPath, binPath string, limit int, verbose bool) error {
+	db, err := store.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.EnsureVectorColumns(); err != nil {
+		return fmt.Errorf("ensure columns: %w", err)
+	}
+
+	candidates, err := db.GetUnembeddedRecords(limit)
+	if err != nil {
+		return fmt.Errorf("get candidates: %w", err)
+	}
+	if len(candidates) == 0 {
+		embedded, total, _ := db.EmbedStats()
+		fmt.Printf("All records embedded (%d/%d)\n", embedded, total)
+		return nil
+	}
+	fmt.Printf("Embedding %d records via NLEmbedding...\n", len(candidates))
+
+	emb, err := embedder.New(binPath)
+	if err != nil {
+		return fmt.Errorf("start embedder: %w", err)
+	}
+	defer emb.Close()
+
+	success, skipped := 0, 0
+	for i, c := range candidates {
+		text := summarizer.TextForEmbedding(c.Title, c.Body)
+		if text == "" {
+			skipped++
+			continue
+		}
+		vec, err := emb.Embed(text)
+		if err != nil {
+			if verbose {
+				log.Printf("  WARN [%d] %s: %v", c.ID, c.Title, err)
+			}
+			skipped++
+			continue
+		}
+		if err := db.SetEmbedding(c.ID, vec); err != nil {
+			log.Printf("  WARN: save embedding %d: %v", c.ID, err)
+			skipped++
+			continue
+		}
+		success++
+		if verbose && i%50 == 0 {
+			log.Printf("  [%d/%d] embedded", i+1, len(candidates))
+		}
+	}
+
+	embedded, total, _ := db.EmbedStats()
+	fmt.Printf("Embedded %d, skipped %d. Total: %d/%d records have embeddings.\n",
+		success, skipped, embedded, total)
+	return nil
+}
+
+func runSummarizeLocal(dbPath, binPath string, limit int, verbose bool) error {
+	db, err := store.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.EnsureVectorColumns(); err != nil {
+		return fmt.Errorf("ensure columns: %w", err)
+	}
+
+	candidates, err := db.GetSummarizableCandidates(limit)
+	if err != nil {
+		return fmt.Errorf("get candidates: %w", err)
+	}
+	if len(candidates) == 0 {
+		fmt.Println("No records with body text need local summarization.")
+		return nil
+	}
+	fmt.Printf("Summarizing %d records via FoundationModels...\n", len(candidates))
+
+	sum, err := summarizer.NewLocal(binPath)
+	if err != nil {
+		return fmt.Errorf("start summarizer: %w", err)
+	}
+	defer sum.Close()
+
+	success, skipped := 0, 0
+	for i, c := range candidates {
+		text := summarizer.TextForEmbedding(c.Title, c.Body)
+		s, err := sum.Summarize(text)
+		if err != nil {
+			if verbose {
+				log.Printf("  WARN [%d] %s: %v", c.ID, c.Title, err)
+			}
+			skipped++
+			continue
+		}
+		if err := db.SetLocalSummary(c.ID, s); err != nil {
+			log.Printf("  WARN: save summary %d: %v", c.ID, err)
+			skipped++
+			continue
+		}
+		success++
+		if verbose {
+			log.Printf("  [%d/%d] %s", i+1, len(candidates), c.Title)
+		}
+	}
+
+	fmt.Printf("Summarized %d, skipped %d.\n", success, skipped)
+	return nil
 }

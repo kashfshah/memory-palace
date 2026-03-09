@@ -1,10 +1,20 @@
 BINARY   := bin/memory-palace
 BUNDLE   := $(HOME)/Applications/MemoryPalace.app/Contents/MacOS/memory-palace
+EMBED_BIN   := bin/mp-embed
+SUMMARIZE_BIN := bin/mp-summarize
 
-.PHONY: build bundle install reinstall uninstall
+.PHONY: build swift bundle install reinstall uninstall
 
-build:
+build: swift
 	go build -o $(BINARY) .
+
+swift: $(EMBED_BIN) $(SUMMARIZE_BIN)
+
+$(EMBED_BIN): cmd/mp-embed/main.swift
+	swiftc -O $< -o $@ -framework NaturalLanguage
+
+$(SUMMARIZE_BIN): cmd/mp-summarize/main.swift
+	swiftc -O $< -o $@ -framework Foundation
 
 bundle: build
 	@mkdir -p $(HOME)/Applications/MemoryPalace.app/Contents/MacOS
