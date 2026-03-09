@@ -664,6 +664,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	type IndexInfo struct {
 		Total     int            `json:"total"`
+		Embedded  int            `json:"embedded"`
 		BySrc     map[string]int `json:"by_source"`
 		LastBuild string         `json:"last_build,omitempty"`
 	}
@@ -700,6 +701,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			rows.Close()
 		}
 		conn.QueryRow("SELECT value FROM meta WHERE key = 'last_build'").Scan(&resp.Index.LastBuild)
+		// Embedding progress — best-effort; column may not exist on fresh installs.
+		conn.QueryRow("SELECT COUNT(*) FROM memory WHERE embedding IS NOT NULL").Scan(&resp.Index.Embedded)
 	}
 
 	// Per-source indexer status from the file written by the indexer process.

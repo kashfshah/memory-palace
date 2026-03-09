@@ -227,6 +227,25 @@ function renderIndex(idx) {
     '<div class="meta-item"><div class="meta-val" style="font-size:1rem">' + lastBuild + '</div><div class="meta-lbl">Last Build</div></div>' +
   '</div>';
 
+  // Embedding progress bar — hidden when no embeddings exist yet.
+  let embedBar = '';
+  if (idx.total > 0 && idx.embedded >= 0) {
+    const pct = Math.min(100, Math.round(idx.embedded / idx.total * 100));
+    const done = idx.embedded >= idx.total;
+    const fillColor = done ? 'var(--accent-dim)' : 'var(--orange)';
+    const label = done
+      ? fmtNum(idx.embedded) + ' embedded (100%)'
+      : fmtNum(idx.embedded) + ' / ' + fmtNum(idx.total) + ' embedded (' + pct + '%)';
+    embedBar = '<div style="margin:0.6rem 0 0.9rem">' +
+      '<div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-dim);margin-bottom:0.3rem">' +
+        '<span>Semantic index</span><span>' + label + '</span>' +
+      '</div>' +
+      '<div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">' +
+        '<div style="height:100%;width:' + pct + '%;background:' + fillColor + ';border-radius:2px;transition:width 0.4s"></div>' +
+      '</div>' +
+    '</div>';
+  }
+
   const bySrc = idx.by_source || {};
   const maxCount = Math.max(1, ...Object.values(bySrc));
   const sorted = Object.entries(bySrc).sort((a, b) => b[1] - a[1]);
@@ -240,7 +259,7 @@ function renderIndex(idx) {
 
   return '<div class="card">' +
     '<div class="card-header"><span class="card-title">Index</span></div>' +
-    '<div class="card-body">' + meta +
+    '<div class="card-body">' + meta + embedBar +
       '<div class="source-bars">' + bars + '</div>' +
     '</div>' +
   '</div>';
