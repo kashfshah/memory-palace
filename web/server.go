@@ -361,6 +361,9 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 		limit = l
 	}
 
+	// TODO: add user-controlled domain hide list (hidden_domains table + UI toggle).
+	// For now, domains chart shows all domains including noisy ones like
+	// translate.kagi.com and localhost — accurate data, acceptable for MVP.
 	rows, err := conn.Query(`
 		SELECT
 			CASE
