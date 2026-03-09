@@ -175,6 +175,37 @@ TCC permissions needed for the server process.
 
 ---
 
+## Zotero integration
+
+Memory Palace reads directly from the Zotero SQLite database — no Zotero API
+or sync required. It indexes title, URL, abstract, tags, and collection
+membership from your local Zotero library.
+
+Set `ZOTERO_DB` to your Zotero database path, or Memory Palace will search
+the default location automatically:
+
+```bash
+# Default location (auto-detected)
+~/Zotero/zotero.sqlite
+
+# Override
+ZOTERO_DB=/path/to/zotero.sqlite ./bin/memory-palace
+```
+
+### PSH taxonomy browser
+
+If you run the PSH enrichment pipeline (`scripts/psh-classify.py`), Zotero
+items get automatically classified into the
+[Précis des Sciences Humaines](https://en.wikipedia.org/wiki/Pr%C3%A9cis_de_sciences_humaines)
+taxonomy — a hierarchical classification of 14,000+ social science and
+humanities concepts.
+
+Classified items appear with PSH tag chips in search results and are
+browsable via the **PSH** tab in the web UI (43 top-level sections, 700+
+subcategories).
+
+---
+
 ## ArchiveBox integration
 
 Memory Palace supports reading from an ArchiveBox instance configured via
