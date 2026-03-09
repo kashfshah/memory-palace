@@ -5,7 +5,7 @@ notes, calendar, reminders, Zotero library, and more into a single SQLite databa
 with full-text search and a local web UI.
 
 <p align="center">
-  <img src="docs/screenshot-mobile.png" width="200" alt="Memory Palace home screen" />
+  <img src="docs/screenshot-health.png" width="200" alt="Memory Palace health dashboard" />
   <img src="docs/screenshot-results.png" width="200" alt="Memory Palace search results" />
 </p>
 
