@@ -1,7 +1,7 @@
 # memory-palace — Project Instructions
 
 Personal memory index. Extracts from 10+ sources, stores in SQLite, serves a
-web UI at memory.kashifshah.net. Hourly launchd indexer + always-on web server.
+web UI on localhost (default port 7703). Hourly launchd indexer + always-on web server.
 
 ---
 
@@ -17,7 +17,7 @@ Each process owns its output files; other processes read them.
 | `data/metal-history.jsonl` | web server collector | web server HTTP handler | CPU/RAM/disk/net history |
 | `data/clipboard.jsonl` | clipboard-monitor.py | indexer | clipboard content stream |
 | `data/memory.db` | indexer | web server | the full memory index |
-| `data/.last-counts` | run-memory-palace.sh | run-memory-palace.sh | per-source Zulip delta state |
+| `data/.last-counts` | indexer wrapper script | indexer wrapper script | per-source delta state |
 | `data/.last-feed` | `--feed` mode | `--feed` mode | ArchiveBox feed watermark |
 
 New subsystems default to file-based IPC. Sockets are opt-in exceptions that
@@ -35,7 +35,8 @@ require a documented performance justification.
   for SSE live updates. Serves `/health`, `/api/metal`, `/api/history`.
 - **Clipboard monitor** (`scripts/clipboard-monitor.py`) — cross-platform poller
   (pbpaste on macOS, xclip/xsel/wl-paste on Linux). Writes `data/clipboard.jsonl`.
-  Runs as launchd on gray-box, systemd --user on chromabook.
+  Install via `scripts/install-clipboard-monitor.sh` (macOS launchd) or adapt
+  the systemd unit for Linux.
 
 ---
 
