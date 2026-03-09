@@ -319,6 +319,25 @@ const indexHTML = `<!DOCTYPE html>
     .stat-value { font-size: 1rem; }
     .bar-label { width: 80px; }
   }
+
+  /* Live indicator */
+  .live-dot {
+    display: inline-block; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--text-faint);
+    transition: background 0.4s;
+  }
+  .live-dot.live { background: var(--green); animation: pulse-dot 2s infinite; }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+  }
+  .new-items-toast {
+    display: none; position: fixed; bottom: 1.5rem; right: 1.5rem;
+    background: var(--surface); border: 1px solid var(--accent-dim);
+    color: var(--accent); padding: 0.5rem 1rem; border-radius: var(--radius);
+    font-size: 0.8rem; cursor: pointer; z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .new-items-toast.show { display: block; }
 </style>
 </head>
 <body>
@@ -326,9 +345,11 @@ const indexHTML = `<!DOCTYPE html>
   <header>
     <div class="header-left">
       <h1><span>Memory</span> Palace</h1>
+      <span class="live-dot" id="live-dot" title="Live updates"></span>
     </div>
     <div class="header-meta" id="header-meta"></div>
   </header>
+  <div class="new-items-toast" id="new-items-toast" onclick="dismissNewItems()"></div>
 
   <div class="stats-bar" id="stats-bar">
     <div class="stat skeleton skeleton-stat"></div>
@@ -1021,10 +1042,59 @@ function relativeTime(unix) {
   return new Date(unix * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// --- Live updates via SSE ---
+let _pendingNewItems = 0;
+
+function dismissNewItems() {
+  _pendingNewItems = 0;
+  const toast = $('#new-items-toast');
+  toast.classList.remove('show');
+  doSearch();
+}
+
+function initLiveUpdates() {
+  if (!window.EventSource) return;
+  const dot = $('#live-dot');
+  const es = new EventSource('/api/events');
+
+  es.onopen = () => { dot.classList.add('live'); };
+  es.onerror = () => { dot.classList.remove('live'); };
+
+  es.addEventListener('indexUpdate', e => {
+    let ev;
+    try { ev = JSON.parse(e.data); } catch(_) { return; }
+
+    const activeTab = document.querySelector('.tab.active');
+    const tab = activeTab ? activeTab.dataset.panel : 'results';
+
+    if (tab === 'results') {
+      const q = $('#search-input').value.trim();
+      if (!q) {
+        // Browse mode — refresh silently.
+        doSearch();
+      } else {
+        // Active query — show toast so user can dismiss.
+        _pendingNewItems += ev.added || 0;
+        const toast = $('#new-items-toast');
+        const src = ev.source ? ' (' + (SRC_LABELS[ev.source] || ev.source) + ')' : '';
+        toast.textContent = '+' + _pendingNewItems + ' new item' + (_pendingNewItems === 1 ? '' : 's') + src + ' — click to refresh';
+        toast.classList.add('show');
+      }
+    } else if (tab === 'timeline') {
+      const activeGran = document.querySelector('.chart-btn.active');
+      loadTimeline(activeGran ? activeGran.textContent.toLowerCase() : 'month');
+    }
+
+    // Always refresh stats bar.
+    loadStats();
+  });
+}
+
 // --- Init ---
 loadStats();
 // Defer one tick so the DOM is fully painted before routing kicks in.
 setTimeout(restoreFromHash, 0);
+initLiveUpdates();
 </script>
 </body>
 </html>`

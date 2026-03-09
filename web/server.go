@@ -21,6 +21,8 @@ type Server struct {
 	keyFile  string
 	authUser string
 	authPass string
+	hub      *liveHub
+	sCache   statsCache
 }
 
 // Option configures the web server.
@@ -44,15 +46,17 @@ func WithBasicAuth(user, pass string) Option {
 
 // New creates a new web server.
 func New(dbPath string, port int, opts ...Option) *Server {
-	s := &Server{dbPath: dbPath, port: port}
+	s := &Server{dbPath: dbPath, port: port, hub: newLiveHub()}
 	for _, opt := range opts {
 		opt(s)
 	}
 	return s
 }
 
-// Start launches the web server.
+// Start launches the web server and background indexer.
 func (s *Server) Start() error {
+	go s.runIndexer()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/search", s.handleSearch)
@@ -62,6 +66,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/clusters", s.handleClusters)
 	mux.HandleFunc("/api/psh", s.handlePSH)
 	mux.HandleFunc("/api/psh/items", s.handlePSHItems)
+	mux.HandleFunc("/api/events", s.handleEvents)
 
 	var handler http.Handler = mux
 	if s.authUser != "" {
@@ -180,6 +185,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Serve from cache if still fresh.
+	if cached := s.sCache.get(); cached != nil {
+		w.Write(cached)
+		return
+	}
+
 	conn, err := s.openDB()
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -216,8 +229,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	st.Oldest = time.Unix(oldest, 0).Format("2006-01-02")
 	st.Newest = time.Unix(newest, 0).Format("2006-01-02")
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(st)
+	payload, _ := json.Marshal(st)
+	s.sCache.set(payload)
+	w.Write(payload)
 }
 
 func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
