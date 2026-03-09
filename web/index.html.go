@@ -682,6 +682,13 @@ async function loadStats() {
   try {
     const s = await apiFetch('/api/stats');
     const bar = $('#stats-bar');
+    if (s.setup) {
+      bar.innerHTML = '<div class="stat" style="grid-column:1/-1;text-align:center">' +
+        '<div class="stat-value" style="font-size:0.9rem;color:var(--text-dim)">No data yet</div>' +
+        '<div class="stat-label">Run <code>memory-palace</code> to build your index</div></div>';
+      $('#header-meta').textContent = 'not indexed yet';
+      return;
+    }
     bar.innerHTML =
       stat(fmtNum(s.total), 'Total Records') +
       stat(Object.keys(s.by_source).length, 'Sources', 'switchToSources()') +

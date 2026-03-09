@@ -65,10 +65,21 @@ CREATE TABLE IF NOT EXISTS meta (
 `
 
 // Open creates or opens the memory database at the given path.
+// If the database file exists but fails a quick integrity check, it is renamed
+// to <path>.corrupt and an error is returned so the caller can start fresh.
 func Open(path string) (*DB, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("create dir: %w", err)
+	}
+
+	// Integrity check on existing databases before opening for writes.
+	if _, err := os.Stat(path); err == nil {
+		if corrupt, reason := checkIntegrity(path); corrupt {
+			backup := path + ".corrupt"
+			os.Rename(path, backup)
+			return nil, fmt.Errorf("database corrupt (renamed to %s): %s", filepath.Base(backup), reason)
+		}
 	}
 
 	conn, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
@@ -82,6 +93,21 @@ func Open(path string) (*DB, error) {
 	}
 
 	return &DB{conn: conn}, nil
+}
+
+// checkIntegrity runs PRAGMA quick_check on the database at path.
+// Returns (true, reason) if the database appears corrupt.
+func checkIntegrity(path string) (corrupt bool, reason string) {
+	conn, err := sql.Open("sqlite", path+"?mode=ro&_pragma=busy_timeout(2000)")
+	if err != nil {
+		return true, err.Error()
+	}
+	defer conn.Close()
+	var result string
+	if err := conn.QueryRow("PRAGMA quick_check").Scan(&result); err != nil {
+		return true, err.Error()
+	}
+	return result != "ok", result
 }
 
 // Close closes the database connection.

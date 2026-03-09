@@ -1,6 +1,7 @@
 package extractors
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,11 @@ import (
 
 	"github.com/kashfshah/memory-palace/store"
 )
+
+// ErrNotConfigured is returned by extractors that require external configuration
+// (env vars, SSH keys, remote hosts) when that configuration is absent.
+// Callers should skip these sources silently rather than logging a warning.
+var ErrNotConfigured = errors.New("extractor not configured")
 
 // snapshotDB copies a SQLite database (and its WAL/SHM files) to /tmp
 // so extractors can read without conflicting with running apps that hold

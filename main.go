@@ -231,6 +231,12 @@ func main() {
 			log.Printf("extracting: %s", src)
 		}
 		records, err := ext.Extract()
+		if errors.Is(err, extractors.ErrNotConfigured) {
+			if *verbose {
+				log.Printf("  %s: not configured, skipping", src)
+			}
+			continue
+		}
 		if err != nil {
 			log.Printf("WARN: %s extraction failed: %v", src, err)
 			continue

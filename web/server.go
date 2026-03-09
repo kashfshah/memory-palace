@@ -3,26 +3,34 @@ package web
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
+// errDBMissing is returned by openDB when the database file does not yet exist.
+var errDBMissing = errors.New("database not yet created — run memory-palace to build the index")
+
 // Server serves the memory palace web UI.
 type Server struct {
-	dbPath   string
-	port     int
-	certFile string
-	keyFile  string
-	authUser string
-	authPass string
-	hub      *liveHub
-	sCache   statsCache
+	dbPath       string
+	port         int
+	certFile     string
+	keyFile      string
+	authUser     string
+	authPass     string
+	hub          *liveHub
+	sCache       statsCache
+	statusMu     sync.RWMutex
+	sourceStatus map[string]SourceStatus
 }
 
 // Option configures the web server.
@@ -46,7 +54,12 @@ func WithBasicAuth(user, pass string) Option {
 
 // New creates a new web server.
 func New(dbPath string, port int, opts ...Option) *Server {
-	s := &Server{dbPath: dbPath, port: port, hub: newLiveHub()}
+	s := &Server{
+		dbPath:       dbPath,
+		port:         port,
+		hub:          newLiveHub(),
+		sourceStatus: make(map[string]SourceStatus),
+	}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -67,6 +80,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/psh", s.handlePSH)
 	mux.HandleFunc("/api/psh/items", s.handlePSHItems)
 	mux.HandleFunc("/api/events", s.handleEvents)
+	mux.HandleFunc("/api/health", s.handleHealth)
 
 	var handler http.Handler = mux
 	if s.authUser != "" {
@@ -96,7 +110,26 @@ func (s *Server) basicAuth(next http.Handler) http.Handler {
 }
 
 func (s *Server) openDB() (*sql.DB, error) {
+	if _, err := os.Stat(s.dbPath); os.IsNotExist(err) {
+		return nil, errDBMissing
+	}
 	return sql.Open("sqlite", s.dbPath+"?mode=ro")
+}
+
+// openDBOrJSON opens the DB. On errDBMissing it writes a setup JSON response
+// and returns (nil, false). On other errors it writes a 500. Returns (conn, true) on success.
+func (s *Server) openDBOrJSON(w http.ResponseWriter, emptyJSON []byte) (*sql.DB, bool) {
+	conn, err := s.openDB()
+	if errors.Is(err, errDBMissing) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(emptyJSON)
+		return nil, false
+	}
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return nil, false
+	}
+	return conn, true
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -113,13 +146,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		limit = l
 	}
 
-	conn, err := s.openDB()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	conn, ok := s.openDBOrJSON(w, []byte("[]"))
+	if !ok {
 		return
 	}
 	defer conn.Close()
 
+	var err error
 	var rows *sql.Rows
 	if q != "" {
 		query := `SELECT m.source, m.timestamp, COALESCE(m.title,''), COALESCE(m.url,''),
@@ -193,9 +226,12 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := s.openDB()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	setupJSON, _ := json.Marshal(map[string]any{
+		"total": 0, "by_source": map[string]int{}, "enriched": 0,
+		"oldest": "", "newest": "", "setup": true,
+	})
+	conn, ok := s.openDBOrJSON(w, setupJSON)
+	if !ok {
 		return
 	}
 	defer conn.Close()
@@ -235,9 +271,8 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.openDB()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	conn, ok := s.openDBOrJSON(w, []byte("[]"))
+	if !ok {
 		return
 	}
 	defer conn.Close()
@@ -292,9 +327,8 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.openDB()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	conn, ok := s.openDBOrJSON(w, []byte("[]"))
+	if !ok {
 		return
 	}
 	defer conn.Close()
@@ -346,9 +380,8 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.openDB()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	conn, ok := s.openDBOrJSON(w, []byte("[]"))
+	if !ok {
 		return
 	}
 	defer conn.Close()
@@ -457,9 +490,8 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 // handlePSH returns the PSH section/sub-section tree with item counts.
 // GET /api/psh → [{l1, total, subs: [{l2, count}]}] sorted by total desc.
 func (s *Server) handlePSH(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.openDB()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	conn, ok := s.openDBOrJSON(w, []byte("[]"))
+	if !ok {
 		return
 	}
 	defer conn.Close()
@@ -544,13 +576,14 @@ func (s *Server) handlePSHItems(w http.ResponseWriter, r *http.Request) {
 		limit = v
 	}
 
-	conn, err := s.openDB()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	emptyJSON, _ := json.Marshal(map[string]any{"total": 0, "items": []any{}})
+	conn, ok := s.openDBOrJSON(w, emptyJSON)
+	if !ok {
 		return
 	}
 	defer conn.Close()
 
+	var err error
 	var countRow *sql.Row
 	var itemRows *sql.Rows
 
@@ -608,6 +641,65 @@ func (s *Server) handlePSHItems(w http.ResponseWriter, r *http.Request) {
 		"total": total,
 		"items": items,
 	})
+}
+
+// handleHealth returns system health for the Memory Palace server.
+// GET /api/health → {db, index, live_indexer}
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	type DBInfo struct {
+		OK     bool    `json:"ok"`
+		SizeMB float64 `json:"size_mb,omitempty"`
+		Error  string  `json:"error,omitempty"`
+	}
+	type IndexInfo struct {
+		Total     int            `json:"total"`
+		BySrc     map[string]int `json:"by_source"`
+		LastBuild string         `json:"last_build,omitempty"`
+	}
+	type HealthResp struct {
+		DB          DBInfo                  `json:"db"`
+		Index       IndexInfo               `json:"index"`
+		LiveSources map[string]SourceStatus `json:"live_indexer"`
+	}
+
+	resp := HealthResp{
+		Index:       IndexInfo{BySrc: make(map[string]int)},
+		LiveSources: make(map[string]SourceStatus),
+	}
+
+	// DB file check.
+	fi, err := os.Stat(s.dbPath)
+	if err != nil {
+		resp.DB = DBInfo{OK: false, Error: err.Error()}
+	} else {
+		resp.DB = DBInfo{OK: true, SizeMB: float64(fi.Size()) / 1e6}
+	}
+
+	// Index stats (best-effort — skip if DB not ready).
+	if conn, err := s.openDB(); err == nil {
+		defer conn.Close()
+		conn.QueryRow("SELECT COUNT(*) FROM memory").Scan(&resp.Index.Total)
+		if rows, err := conn.Query("SELECT source, COUNT(*) FROM memory GROUP BY source"); err == nil {
+			for rows.Next() {
+				var src string
+				var c int
+				rows.Scan(&src, &c)
+				resp.Index.BySrc[src] = c
+			}
+			rows.Close()
+		}
+		conn.QueryRow("SELECT value FROM meta WHERE key = 'last_build'").Scan(&resp.Index.LastBuild)
+	}
+
+	// Live indexer source status.
+	s.statusMu.RLock()
+	for k, v := range s.sourceStatus {
+		resp.LiveSources[k] = v
+	}
+	s.statusMu.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func splitWords(s string) []string {

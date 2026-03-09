@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -88,6 +89,15 @@ func (c *statsCache) invalidate() {
 	c.mu.Unlock()
 }
 
+// SourceStatus records the outcome of the most recent background index attempt
+// for a single source. Exposed via /api/health.
+type SourceStatus struct {
+	LastRun   time.Time `json:"last_run,omitempty"`
+	LastAdded int       `json:"last_added"`
+	Error     string    `json:"error,omitempty"`
+	OK        bool      `json:"ok"`
+}
+
 // fastSources are re-indexed every 30 seconds — cheap, low-latency reads.
 var fastSources = []string{"knowledgec", "safari_open_tabs", "safari_icloud_tabs"}
 
@@ -169,22 +179,39 @@ func (s *Server) indexSources(sources []string) {
 		if !ok {
 			continue
 		}
+
+		ss := SourceStatus{LastRun: time.Now()}
 		records, err := ext.Extract()
-		if err != nil {
+		switch {
+		case errors.Is(err, extractors.ErrNotConfigured):
+			ss.OK = false
+			ss.Error = "not configured"
+		case err != nil:
+			ss.OK = false
+			ss.Error = err.Error()
 			log.Printf("live: %s extract: %v", src, err)
-			continue
+		default:
+			records = extractors.SanitizeRecords(records)
+			n, upsertErr := db.Upsert(src, records)
+			if upsertErr != nil {
+				ss.OK = false
+				ss.Error = upsertErr.Error()
+				log.Printf("live: %s upsert: %v", src, upsertErr)
+			} else {
+				ss.OK = true
+				ss.LastAdded = n
+				if n > 0 {
+					anyAdded = true
+					s.hub.broadcast(IndexUpdate{Source: src, Added: n})
+				}
+			}
 		}
-		records = extractors.SanitizeRecords(records)
-		n, err := db.Upsert(src, records)
-		if err != nil {
-			log.Printf("live: %s upsert: %v", src, err)
-			continue
-		}
-		if n > 0 {
-			anyAdded = true
-			s.hub.broadcast(IndexUpdate{Source: src, Added: n})
-		}
+
+		s.statusMu.Lock()
+		s.sourceStatus[src] = ss
+		s.statusMu.Unlock()
 	}
+
 	if anyAdded {
 		s.sCache.invalidate()
 		if err := db.RebuildFTS(); err != nil {
