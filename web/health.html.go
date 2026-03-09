@@ -5,7 +5,7 @@ const healthHTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Memory Palace — Health</title>
+<title>Memory Palace / Health</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f3db;</text></svg>">
 <style>
   :root {
@@ -160,11 +160,11 @@ const healthHTML = `<!DOCTYPE html>
 <div class="container">
   <header>
     <div class="header-left">
-      <h1><span>Memory</span> Palace &mdash; Health</h1>
+      <a href="/" style="text-decoration:none"><h1><span>Memory</span> Palace</h1></a><span style="color:var(--text-faint);font-size:1rem;font-weight:400">/ Health</span>
     </div>
     <div class="header-right">
       <span class="refresh-info" id="refresh-info"></span>
-      <a class="back-link" href="/">&#8592; Back to search</a>
+      <a class="back-link" href="/">&#8592; Memory Palace</a>
     </div>
   </header>
 

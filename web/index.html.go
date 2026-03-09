@@ -361,7 +361,10 @@ const indexHTML = `<!DOCTYPE html>
       <h1><span>Memory</span> Palace</h1>
       <span class="live-dot" id="live-dot" title="Live updates"></span>
     </div>
-    <div class="header-meta" id="header-meta"></div>
+    <div style="display:flex;align-items:center;gap:1rem">
+      <div class="header-meta" id="header-meta"></div>
+      <a href="/health" style="font-size:0.75rem;color:var(--text-faint);text-decoration:none;opacity:0.7" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">Health ›</a>
+    </div>
   </header>
   <div class="new-items-toast" id="new-items-toast" onclick="dismissNewItems()"></div>
 
