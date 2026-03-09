@@ -91,7 +91,8 @@ func (c *statsCache) invalidate() {
 type SourceStatus struct {
 	LastRun    time.Time `json:"last_run,omitempty"`
 	LastChange time.Time `json:"last_change,omitempty"`
-	LastAdded  int       `json:"last_added,omitempty"`
+	Total     int       `json:"total"`
+	LastAdded int       `json:"last_added"`
 	Error      string    `json:"error,omitempty"`
 	OK         bool      `json:"ok"`
 }

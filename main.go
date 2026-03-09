@@ -226,6 +226,7 @@ func main() {
 	type sourceStatus struct {
 		OK        bool      `json:"ok"`
 		LastRun   time.Time `json:"last_run"`
+		Total     int       `json:"total"`
 		LastAdded int       `json:"last_added"`
 		Error     string    `json:"error,omitempty"`
 	}
@@ -260,16 +261,18 @@ func main() {
 		if *verbose && len(records) < before {
 			log.Printf("  %s: sanitized %d → %d records", src, before, len(records))
 		}
+		prevCount := db.CountBySource(src)
 		n, err := db.Upsert(src, records)
 		if err != nil {
 			log.Printf("WARN: %s upsert failed: %v", src, err)
 			statusMap[src] = sourceStatus{OK: false, LastRun: now, Error: err.Error()}
 			continue
 		}
+		delta := n - prevCount
 		if *verbose {
-			log.Printf("  %s: %d records", src, n)
+			log.Printf("  %s: %d records (+%d)", src, n, delta)
 		}
-		statusMap[src] = sourceStatus{OK: true, LastRun: now, LastAdded: n}
+		statusMap[src] = sourceStatus{OK: true, LastRun: now, Total: n, LastAdded: delta}
 		total += n
 	}
 

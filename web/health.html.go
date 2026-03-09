@@ -131,6 +131,8 @@ const healthHTML = `<!DOCTYPE html>
     .src-row { grid-template-columns: 110px 1fr 55px; }
     .indexer-table th:nth-child(3),
     .indexer-table td:nth-child(3) { display: none; }
+    .indexer-table th:nth-child(4),
+    .indexer-table td:nth-child(4) { display: none; }
     .indexer-table th:nth-child(6),
     .indexer-table td:nth-child(6) { display: none; }
   }
@@ -270,7 +272,7 @@ function renderIndexer(sources, hours) {
 
   let rows = '';
   if (entries.length === 0) {
-    rows = '<tr class="empty-row"><td colspan="6">No indexer runs yet — wait up to 30 seconds</td></tr>';
+    rows = '<tr class="empty-row"><td colspan="7">No indexer runs yet — wait up to 30 seconds</td></tr>';
   } else {
     for (const [src, s] of entries) {
       const dot = s.ok
@@ -279,9 +281,16 @@ function renderIndexer(sources, hours) {
             ? '<span class="status-dot dot-unknown" title="Not configured"></span>'
             : '<span class="status-dot dot-err" title="Error"></span>');
 
-      const added = s.last_added > 0
-        ? '<span class="added-pos">+' + s.last_added + '</span>'
+      const totalCell = s.total > 0
+        ? '<span class="time-dim">' + fmtNum(s.total) + '</span>'
         : '<span class="added-zero">—</span>';
+
+      const delta = s.last_added;
+      const deltaCell = delta > 0
+        ? '<span class="added-pos">+' + fmtNum(delta) + '</span>'
+        : (delta < 0
+            ? '<span style="color:var(--orange)">' + fmtNum(delta) + '</span>'
+            : '<span class="added-zero">—</span>');
 
       const errCell = s.error && s.error !== 'not configured'
         ? '<span class="err-text">' + escHtml(s.error) + '</span>'
@@ -293,7 +302,8 @@ function renderIndexer(sources, hours) {
         '<td>' + dot + '</td>' +
         '<td class="src-label">' + srcLabel(src) + '</td>' +
         '<td class="time-dim">' + relTime(s.last_run) + '</td>' +
-        '<td>' + added + '</td>' +
+        '<td>' + totalCell + '</td>' +
+        '<td>' + deltaCell + '</td>' +
         '<td>' + spark + '</td>' +
         '<td>' + errCell + '</td>' +
       '</tr>';
@@ -320,7 +330,7 @@ function renderIndexer(sources, hours) {
     '<div class="card-header"><span class="card-title">Live Indexer</span><div style="display:flex;gap:1rem;align-items:center">' + picker + statusBadge + '</div></div>' +
     '<div class="card-body" style="padding:0">' +
       '<table class="indexer-table"><thead><tr>' +
-        '<th></th><th>Source</th><th>Last Run</th><th>Added</th><th>Trend</th><th>Detail</th>' +
+        '<th></th><th>Source</th><th>Last Run</th><th>Total</th><th>Delta</th><th>Trend</th><th>Detail</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>' +
       (legend ? '<div style="padding:0.75rem 1.25rem">' + legend + '</div>' : '') +
     '</div>' +

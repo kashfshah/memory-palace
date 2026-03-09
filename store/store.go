@@ -115,6 +115,13 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// CountBySource returns the current record count for a given source.
+func (db *DB) CountBySource(source string) int {
+	var n int
+	db.conn.QueryRow("SELECT COUNT(*) FROM memory WHERE source = ?", source).Scan(&n)
+	return n
+}
+
 // Upsert inserts or replaces records for a given source. Returns count inserted.
 func (db *DB) Upsert(source string, records []Record) (int, error) {
 	tx, err := db.conn.Begin()

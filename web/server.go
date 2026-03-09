@@ -710,6 +710,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fill in Total from DB by_source counts for sources that have records
+	// but show total=0 (e.g., sources that failed extraction this run but
+	// have data from a previous successful run).
+	for src, dbCount := range resp.Index.BySrc {
+		if s, ok := resp.LiveSources[src]; ok && s.Total == 0 && dbCount > 0 {
+			s.Total = dbCount
+			resp.LiveSources[src] = s
+		}
+	}
+
 	// Merge in-memory watcher status (shows when the DB was last detected as changed).
 	s.statusMu.RLock()
 	for k, v := range s.sourceStatus {
