@@ -305,6 +305,20 @@ func main() {
 		os.WriteFile(statusPath, data, 0644)
 	}
 
+	// Append a history line for sparkline trendlines in the health UI.
+	// Format: {"ts":<unix>, "<source>":<added>, ...}
+	histPath := filepath.Join(filepath.Dir(*dbPath), "indexer-history.jsonl")
+	histEntry := map[string]any{"ts": now.Unix()}
+	for src, s := range statusMap {
+		histEntry[src] = s.LastAdded
+	}
+	if line, err := json.Marshal(histEntry); err == nil {
+		if f, err := os.OpenFile(histPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+			f.Write(append(line, '\n'))
+			f.Close()
+		}
+	}
+
 	// Write build metadata
 	if err := db.SetMeta("last_build", time.Now().UTC().Format(time.RFC3339)); err != nil {
 		log.Printf("WARN: could not write build metadata: %v", err)

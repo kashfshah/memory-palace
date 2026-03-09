@@ -123,10 +123,16 @@ const healthHTML = `<!DOCTYPE html>
   @keyframes shimmer { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
   .loading { animation: shimmer 1.5s infinite; color: var(--text-faint); padding: 2rem; text-align: center; }
 
+  /* Sparkline */
+  .sparkline { display: block; opacity: 0.8; }
+  .spark-empty { width: 80px; height: 16px; display: block; }
+
   @media (max-width: 600px) {
     .src-row { grid-template-columns: 110px 1fr 55px; }
     .indexer-table th:nth-child(3),
     .indexer-table td:nth-child(3) { display: none; }
+    .indexer-table th:nth-child(6),
+    .indexer-table td:nth-child(6) { display: none; }
   }
 </style>
 </head>
@@ -219,12 +225,52 @@ function renderIndex(idx) {
   '</div>';
 }
 
-function renderIndexer(sources) {
+function sparkline(points, w, h) {
+  w = w || 80; h = h || 16;
+  if (!points || points.length < 2) return '<span class="spark-empty"></span>';
+  const max = Math.max(1, ...points.map(p => p.added));
+  const n = points.length;
+  const pts = points.map((p, i) => {
+    const x = (i / (n - 1)) * w;
+    const y = h - Math.round((p.added / max) * (h - 2)) - 1;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  // Area fill under the line
+  const first = '0,' + h;
+  const last  = w + ',' + h;
+  return '<svg class="sparkline" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
+    '<polygon points="' + first + ' ' + pts + ' ' + last + '" fill="var(--accent-dim)" fill-opacity="0.15"/>' +
+    '<polyline points="' + pts + '" fill="none" stroke="var(--accent-dim)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>' +
+  '</svg>';
+}
+
+let historyData = {};
+
+async function loadHistory(hours) {
+  try {
+    historyData = await fetch('/api/history?hours=' + (hours || 24)).then(r => r.json());
+  } catch(e) {
+    historyData = {};
+  }
+}
+
+function renderIndexer(sources, hours) {
   const entries = Object.entries(sources).sort((a, b) => a[0].localeCompare(b[0]));
+
+  // Period picker
+  const periods = [6, 24, 72, 168];
+  const cur = hours || 24;
+  const picker = '<div style="display:flex;gap:0.5rem;align-items:center">' +
+    periods.map(h => {
+      const label = h < 24 ? h + 'h' : (h / 24) + 'd';
+      const active = h === cur ? 'color:var(--accent);font-weight:600' : 'color:var(--text-faint)';
+      return '<button onclick="setHours(' + h + ')" style="background:none;border:none;cursor:pointer;font-size:0.72rem;' + active + '">' + label + '</button>';
+    }).join('') +
+  '</div>';
 
   let rows = '';
   if (entries.length === 0) {
-    rows = '<tr class="empty-row"><td colspan="5">No indexer runs yet — wait up to 30 seconds</td></tr>';
+    rows = '<tr class="empty-row"><td colspan="6">No indexer runs yet — wait up to 30 seconds</td></tr>';
   } else {
     for (const [src, s] of entries) {
       const dot = s.ok
@@ -241,11 +287,14 @@ function renderIndexer(sources) {
         ? '<span class="err-text">' + escHtml(s.error) + '</span>'
         : (s.error === 'not configured' ? '<span class="time-dim">not configured</span>' : '');
 
+      const spark = sparkline(historyData[src] || []);
+
       rows += '<tr>' +
         '<td>' + dot + '</td>' +
         '<td class="src-label">' + srcLabel(src) + '</td>' +
         '<td class="time-dim">' + relTime(s.last_run) + '</td>' +
         '<td>' + added + '</td>' +
+        '<td>' + spark + '</td>' +
         '<td>' + errCell + '</td>' +
       '</tr>';
     }
@@ -268,10 +317,10 @@ function renderIndexer(sources) {
   }
 
   return '<div class="card">' +
-    '<div class="card-header"><span class="card-title">Live Indexer</span>' + statusBadge + '</div>' +
+    '<div class="card-header"><span class="card-title">Live Indexer</span><div style="display:flex;gap:1rem;align-items:center">' + picker + statusBadge + '</div></div>' +
     '<div class="card-body" style="padding:0">' +
       '<table class="indexer-table"><thead><tr>' +
-        '<th></th><th>Source</th><th>Last Run</th><th>Added</th><th>Detail</th>' +
+        '<th></th><th>Source</th><th>Last Run</th><th>Added</th><th>Trend</th><th>Detail</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>' +
       (legend ? '<div style="padding:0.75rem 1.25rem">' + legend + '</div>' : '') +
     '</div>' +
@@ -283,20 +332,29 @@ function escHtml(s) {
 }
 
 let lastFetch = null;
+let currentHours = 24;
 
 async function loadHealth() {
   try {
-    const data = await fetch('/api/health').then(r => r.json());
+    const [data] = await Promise.all([
+      fetch('/api/health').then(r => r.json()),
+      loadHistory(currentHours),
+    ]);
     lastFetch = new Date();
 
     document.getElementById('cards').innerHTML =
       renderDB(data.db || {ok: false, error: 'no data'}) +
       renderIndex(data.index || {}) +
-      renderIndexer(data.live_indexer || {});
+      renderIndexer(data.live_indexer || {}, currentHours);
   } catch(e) {
     document.getElementById('cards').innerHTML =
       '<div class="loading" style="color:var(--red)">Failed to load health data: ' + escHtml(e.message) + '</div>';
   }
+}
+
+function setHours(h) {
+  currentHours = h;
+  loadHealth();
 }
 
 function updateRefreshInfo() {

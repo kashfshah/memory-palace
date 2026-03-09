@@ -83,6 +83,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/psh/items", s.handlePSHItems)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/history", s.handleHistory)
 
 	var handler http.Handler = mux
 	if s.authUser != "" {
@@ -718,6 +719,72 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleHistory serves per-source run history for sparklines.
+// GET /api/history?hours=24  → {"safari_history":[{"ts":...,"added":...},...], ...}
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	hours := 24
+	if h, err := strconv.Atoi(r.URL.Query().Get("hours")); err == nil && h > 0 && h <= 720 {
+		hours = h
+	}
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
+
+	histPath := filepath.Join(filepath.Dir(s.dbPath), "indexer-history.jsonl")
+	data, err := os.ReadFile(histPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{}"))
+		return
+	}
+
+	type point struct {
+		TS    int64 `json:"ts"`
+		Added int   `json:"added"`
+	}
+	result := map[string][]point{}
+
+	for _, line := range splitLines(string(data)) {
+		if line == "" {
+			continue
+		}
+		var row map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			continue
+		}
+		var ts int64
+		if err := json.Unmarshal(row["ts"], &ts); err != nil || ts < cutoff {
+			continue
+		}
+		for src, raw := range row {
+			if src == "ts" {
+				continue
+			}
+			var added int
+			if err := json.Unmarshal(raw, &added); err != nil {
+				continue
+			}
+			result[src] = append(result[src], point{TS: ts, Added: added})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
 }
 
 func splitWords(s string) []string {
