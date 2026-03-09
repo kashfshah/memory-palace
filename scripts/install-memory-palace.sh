@@ -168,12 +168,7 @@ cat > "$WEB_PLIST" << PLISTEOF
     <string>${WEB_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${BUNDLE_BINARY}</string>
-        <string>--serve</string>
-        <string>--port</string>
-        <string>7703</string>
-        <string>--db</string>
-        <string>${DB}</string>
+        <string>${PROJECT_DIR}/scripts/run-web.sh</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${PROJECT_DIR}</string>
@@ -185,15 +180,6 @@ cat > "$WEB_PLIST" << PLISTEOF
     <string>${HOME}/Library/Logs/memory-palace-web.log</string>
     <key>StandardErrorPath</key>
     <string>${HOME}/Library/Logs/memory-palace-web.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>ARCHIVEBOX_SSH_HOST</key>
-        <string>cabinet</string>
-        <key>ARCHIVEBOX_INCUS_CONTAINER</key>
-        <string>archivebox</string>
-        <key>ARCHIVEBOX_INCUS_PATH</key>
-        <string>archivebox/home/archivebox/data/index.sqlite3</string>
-    </dict>
 </dict>
 </plist>
 PLISTEOF
