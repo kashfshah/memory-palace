@@ -9,6 +9,20 @@ with full-text search and a local web UI.
   <img src="docs/screenshot-results.png" width="200" alt="Memory Palace search results" />
 </p>
 
+## Contents
+
+- [What it indexes](#what-it-indexes)
+- [Requirements](#requirements)
+- [Build](#build)
+- [Usage](#usage)
+- [Web UI](#web-ui)
+- [Running as a launchd service](#running-as-a-launchd-service)
+- [Zotero integration](#zotero-integration)
+- [ArchiveBox integration](#archivebox-integration)
+- [Data](#data)
+- [Database schema](#database-schema)
+- [Privacy](#privacy)
+
 ---
 
 ## What it indexes
