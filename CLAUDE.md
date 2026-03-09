@@ -61,7 +61,7 @@ Two-layer content sanitizer prevents blocked content from entering the index:
 - **Post-index** (`store/memory.go` + `main.go`): `DeleteBlocked()` runs after every
   index build to catch anything that slipped through
 
-Blocked domains and title substrings live in `extractors/blocklist.go`. Run
+Blocked domains and title substrings live in `extractors/sanitize.go`. Run
 `memory-palace --sanitize` to apply the blocklist to an existing DB without re-indexing.
 
 ---
