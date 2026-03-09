@@ -123,12 +123,27 @@ func (db *DB) CountBySource(source string) int {
 }
 
 // Upsert inserts or replaces records for a given source. Returns count inserted.
+// Preserves psh_tags written by external enrichment pipelines (e.g. psh-classify.py).
 func (db *DB) Upsert(source string, records []Record) (int, error) {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
+
+	// Snapshot existing psh_tags keyed by raw_id before clearing.
+	// This preserves enrichment data across re-indexing runs.
+	pshTags := make(map[string]string)
+	rows, err := tx.Query("SELECT raw_id, psh_tags FROM memory WHERE source = ? AND raw_id IS NOT NULL AND psh_tags IS NOT NULL AND psh_tags <> ''", source)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var rawID, tags string
+			if rows.Scan(&rawID, &tags) == nil && rawID != "" {
+				pshTags[rawID] = tags
+			}
+		}
+	}
 
 	// Clear existing records for this source
 	if _, err := tx.Exec("DELETE FROM memory WHERE source = ?", source); err != nil {
@@ -149,6 +164,17 @@ func (db *DB) Upsert(source string, records []Record) (int, error) {
 			continue // skip bad records
 		}
 		count++
+	}
+
+	// Restore psh_tags for re-inserted records matched by raw_id.
+	if len(pshTags) > 0 {
+		restore, err := tx.Prepare("UPDATE memory SET psh_tags = ? WHERE source = ? AND raw_id = ?")
+		if err == nil {
+			defer restore.Close()
+			for rawID, tags := range pshTags {
+				restore.Exec(tags, source, rawID) //nolint:errcheck
+			}
+		}
 	}
 
 	return count, tx.Commit()
