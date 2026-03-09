@@ -32,6 +32,7 @@ type Server struct {
 	sCache       statsCache
 	statusMu     sync.RWMutex
 	sourceStatus map[string]SourceStatus
+	metal        metalCollector
 }
 
 // Option configures the web server.
@@ -67,9 +68,10 @@ func New(dbPath string, port int, opts ...Option) *Server {
 	return s
 }
 
-// Start launches the web server and background DB watcher.
+// Start launches the web server and background goroutines.
 func (s *Server) Start() error {
 	go s.runWatcher()
+	go s.runMetalCollector()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealthPage)
@@ -84,6 +86,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/history", s.handleHistory)
+	mux.HandleFunc("/api/metal", s.handleMetal)
 
 	var handler http.Handler = mux
 	if s.authUser != "" {

@@ -127,7 +127,25 @@ const healthHTML = `<!DOCTYPE html>
   .sparkline { display: block; opacity: 0.8; }
   .spark-empty { width: 80px; height: 16px; display: block; }
 
+  /* Metal section */
+  .metal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .metal-cell {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 0.875rem 1rem;
+  }
+  .metal-cell-title {
+    font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 0.4rem;
+  }
+  .metal-val { font-size: 1.5rem; font-weight: 600; line-height: 1; }
+  .metal-sub { font-size: 0.72rem; color: var(--text-dim); margin: 0.3rem 0 0.5rem; }
+  .metal-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 0.5rem; }
+  .metal-bar-fill { height: 100%; border-radius: 2px; background: var(--accent-dim); transition: width 0.4s; }
+  .metal-bar-warn { background: var(--orange); }
+  .metal-bar-crit { background: var(--red); }
+
   @media (max-width: 600px) {
+    .metal-grid { grid-template-columns: 1fr; }
     .src-row { grid-template-columns: 110px 1fr 55px; }
     .indexer-table th:nth-child(3),
     .indexer-table td:nth-child(3) { display: none; }
@@ -247,6 +265,110 @@ function sparkline(points, w, h) {
   '</svg>';
 }
 
+function fmtMB(mb) {
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+  return mb + ' MB';
+}
+
+function fmtBps(bps) {
+  if (!bps || bps < 0) return '0 B/s';
+  if (bps < 1024) return bps + ' B/s';
+  if (bps < 1024 * 1024) return (bps / 1024).toFixed(1) + ' KB/s';
+  return (bps / (1024 * 1024)).toFixed(1) + ' MB/s';
+}
+
+function usagePct(used, total) {
+  if (!total) return 0;
+  return Math.round(used / total * 100);
+}
+
+function barClass(p) {
+  if (p >= 90) return 'metal-bar-crit';
+  if (p >= 75) return 'metal-bar-warn';
+  return '';
+}
+
+function metalSpark(hist, field) {
+  const pts = (hist || []).map(h => ({ added: h[field] || 0 }));
+  return sparkline(pts, 100, 20);
+}
+
+function metalCell(title, primary, sub, barPct, spark) {
+  const bar = barPct >= 0
+    ? '<div class="metal-bar"><div class="metal-bar-fill ' + barClass(barPct) + '" style="width:' + barPct + '%"></div></div>'
+    : '';
+  return '<div class="metal-cell">' +
+    '<div class="metal-cell-title">' + title + '</div>' +
+    '<div class="metal-val">' + primary + '</div>' +
+    '<div class="metal-sub">' + sub + '</div>' +
+    bar + spark +
+  '</div>';
+}
+
+let metalData = null;
+
+async function loadMetal(hours) {
+  try {
+    metalData = await fetch('/api/metal?hours=' + (hours || 24)).then(r => r.json());
+  } catch(e) {
+    metalData = null;
+  }
+}
+
+function renderMetal() {
+  const c = metalData && metalData.current && metalData.current.ts ? metalData.current : null;
+  const hist = metalData && metalData.history ? metalData.history : [];
+
+  if (!c) {
+    return '<div class="card">' +
+      '<div class="card-header"><span class="card-title">Metal</span></div>' +
+      '<div class="card-body"><span style="color:var(--text-faint);font-size:0.8rem">Collecting first sample&hellip; (30s)</span></div>' +
+    '</div>';
+  }
+
+  const cpuCell = metalCell(
+    'CPU',
+    c.load1.toFixed(2),
+    'load avg ' + c.load1.toFixed(2) + '&nbsp;/&nbsp;' + c.load5.toFixed(2) + '&nbsp;/&nbsp;' + c.load15.toFixed(2) + ' &nbsp;(1/5/15m)',
+    -1,
+    metalSpark(hist, 'load1')
+  );
+
+  const memPct = usagePct(c.mem_used_mb, c.mem_total_mb);
+  const memCell = metalCell(
+    'Memory',
+    fmtMB(c.mem_used_mb),
+    memPct + '% of ' + fmtMB(c.mem_total_mb),
+    memPct,
+    metalSpark(hist, 'mem_used_mb')
+  );
+
+  const diskTotal = c.disk_used_gb + c.disk_free_gb;
+  const diskPct = usagePct(c.disk_used_gb, diskTotal);
+  const diskCell = metalCell(
+    'Disk',
+    c.disk_free_gb.toFixed(0) + ' GB free',
+    diskPct + '% of ' + diskTotal.toFixed(0) + ' GB',
+    diskPct,
+    metalSpark(hist, 'disk_free_gb')
+  );
+
+  const netCell = metalCell(
+    'Network',
+    fmtBps(c.net_rx_bps),
+    '&#8595;&nbsp;' + fmtBps(c.net_rx_bps) + '&emsp;&#8593;&nbsp;' + fmtBps(c.net_tx_bps),
+    -1,
+    metalSpark(hist, 'net_rx_bps')
+  );
+
+  return '<div class="card">' +
+    '<div class="card-header"><span class="card-title">Metal</span></div>' +
+    '<div class="card-body">' +
+      '<div class="metal-grid">' + cpuCell + memCell + diskCell + netCell + '</div>' +
+    '</div>' +
+  '</div>';
+}
+
 let historyData = {};
 
 async function loadHistory(hours) {
@@ -350,10 +472,12 @@ async function loadHealth() {
     const [data] = await Promise.all([
       fetch('/api/health').then(r => r.json()),
       loadHistory(currentHours),
+      loadMetal(currentHours),
     ]);
     lastFetch = new Date();
 
     document.getElementById('cards').innerHTML =
+      renderMetal() +
       renderDB(data.db || {ok: false, error: 'no data'}) +
       renderIndex(data.index || {}) +
       renderIndexer(data.live_indexer || {}, currentHours);
