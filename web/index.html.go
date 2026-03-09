@@ -394,7 +394,7 @@ const indexHTML = `<!DOCTYPE html>
       <option value="knowledgec">App Usage</option>
       <option value="clipboard">Clipboard</option>
     </select>
-    <button id="search-mode-btn" onclick="toggleSearchMode()" title="Toggle semantic (vector) search">FTS</button>
+    <button id="search-mode-btn" class="semantic-on" onclick="toggleSearchMode()" title="Toggle semantic (vector) search">✦ Semantic</button>
     <button onclick="doSearch()">Search</button>
   </div>
 
@@ -588,7 +588,7 @@ function searchTag(el) {
   doSearch();
 }
 
-let semanticMode = false;
+let semanticMode = true;
 
 function toggleSearchMode() {
   semanticMode = !semanticMode;
