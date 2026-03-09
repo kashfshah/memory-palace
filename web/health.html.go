@@ -159,6 +159,7 @@ const SRC_LABELS = {
   zotero:              'Zotero',
   archivebox:          'ArchiveBox',
   knowledgec:          'App Usage',
+  clipboard:           'Clipboard',
 };
 
 function srcLabel(s) { return SRC_LABELS[s] || s.replace(/_/g, ' '); }

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kashif.clipboard-monitor</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/kashif/Projects/memory-palace/scripts/clipboard-monitor.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/kashif/Projects/memory-palace</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CLIPBOARD_MACHINE</key>
+    <string>gray-box</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/kashif/Library/Logs/clipboard-monitor.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/kashif/Library/Logs/clipboard-monitor.log</string>
+</dict>
+</plist>

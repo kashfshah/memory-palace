@@ -83,6 +83,7 @@ var Registry = map[string]Extractor{
 	"zotero":              &Zotero{},
 	"archivebox":          &ArchiveBox{},
 	"knowledgec":          &KnowledgeC{},
+	"clipboard":           &Clipboard{},
 }
 
 // AllSources returns all registered source names.

@@ -378,6 +378,7 @@ const indexHTML = `<!DOCTYPE html>
       <option value="zotero">Zotero</option>
       <option value="archivebox">ArchiveBox</option>
       <option value="knowledgec">App Usage</option>
+      <option value="clipboard">Clipboard</option>
     </select>
     <button onclick="doSearch()">Search</button>
   </div>
@@ -664,7 +665,7 @@ const SRC_LABELS = {
   safari_open_tabs: 'Open Tabs', safari_icloud_tabs: 'iCloud Tabs',
   safari_reading_list: 'Reading List', calendar: 'Calendar',
   reminders: 'Reminders', notes: 'Notes', zotero: 'Zotero', archivebox: 'ArchiveBox',
-  knowledgec: 'App Usage'
+  knowledgec: 'App Usage', clipboard: 'Clipboard'
 };
 function formatSourceFull(s) { return SRC_LABELS[s] || s.replace(/_/g, ' '); }
 

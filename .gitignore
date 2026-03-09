@@ -8,3 +8,4 @@ certs/
 .dev.vars
 server.log
 memory-palace
+/.DS_Store

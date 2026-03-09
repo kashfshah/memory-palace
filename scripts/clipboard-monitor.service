@@ -1,0 +1,32 @@
+# systemd user service for Memory Palace clipboard monitor (Linux/XFCE4)
+#
+# Install on chromabook:
+#   mkdir -p ~/.config/systemd/user
+#   cp clipboard-monitor.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now clipboard-monitor
+#
+# Logs: journalctl --user -u clipboard-monitor -f
+#       or: tail -f ~/.local/share/clipboard-monitor.log
+
+[Unit]
+Description=Memory Palace clipboard monitor
+Documentation=https://github.com/kashfshah/memory-palace
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/kashif/Projects/memory-palace/scripts/clipboard-monitor.py
+WorkingDirectory=/home/kashif/Projects/memory-palace
+Restart=always
+RestartSec=10
+
+Environment=DISPLAY=:0
+Environment=CLIPBOARD_MACHINE=chromabook
+Environment=CLIPBOARD_JSONL_PATH=/home/kashif/Projects/memory-palace/data/clipboard.jsonl
+
+StandardOutput=append:/home/kashif/.local/share/clipboard-monitor.log
+StandardError=append:/home/kashif/.local/share/clipboard-monitor.log
+
+[Install]
+WantedBy=graphical-session.target
