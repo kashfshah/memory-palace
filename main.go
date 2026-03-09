@@ -299,13 +299,17 @@ func main() {
 	statusPath := filepath.Join(filepath.Dir(*dbPath), "indexer-status.json")
 	merged := make(map[string]sourceStatus)
 	if existing, err := os.ReadFile(statusPath); err == nil {
-		json.Unmarshal(existing, &merged)
+		if err := json.Unmarshal(existing, &merged); err != nil {
+			log.Printf("WARN: could not parse existing indexer-status.json (starting fresh): %v", err)
+		}
 	}
 	for k, v := range statusMap {
 		merged[k] = v
 	}
 	if data, err := json.Marshal(merged); err == nil {
-		os.WriteFile(statusPath, data, 0644)
+		if err := os.WriteFile(statusPath, data, 0644); err != nil {
+			log.Printf("WARN: could not write indexer-status.json: %v", err)
+		}
 	}
 
 	// Append a history line for sparkline trendlines in the health UI.
@@ -317,8 +321,12 @@ func main() {
 	}
 	if line, err := json.Marshal(histEntry); err == nil {
 		if f, err := os.OpenFile(histPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-			f.Write(append(line, '\n'))
+			if _, err := f.Write(append(line, '\n')); err != nil {
+				log.Printf("WARN: could not append to indexer-history.jsonl: %v", err)
+			}
 			f.Close()
+		} else {
+			log.Printf("WARN: could not open indexer-history.jsonl: %v", err)
 		}
 	}
 
