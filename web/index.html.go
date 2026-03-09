@@ -537,7 +537,7 @@ $$('.tab').forEach(t => t.addEventListener('click', () => {
   if (t.dataset.panel === 'clusters' && !clustersLoaded) loadClusters();
   if (t.dataset.panel === 'psh' && !pshLoaded) loadPSH();
   if (t.dataset.panel === 'sources' && !sourcesLoaded) loadSources();
-  if (t.dataset.panel !== 'results') updateHash({tab: t.dataset.panel});
+  updateHash({tab: t.dataset.panel});
 }));
 
 // --- Keyboard shortcuts ---
