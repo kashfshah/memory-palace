@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kashfshah/memory-palace/enrichment"
@@ -220,6 +222,16 @@ func main() {
 	}
 	defer db.Close()
 
+	// Per-source status written to indexer-status.json after the run.
+	type sourceStatus struct {
+		OK        bool      `json:"ok"`
+		LastRun   time.Time `json:"last_run"`
+		LastAdded int       `json:"last_added"`
+		Error     string    `json:"error,omitempty"`
+	}
+	statusMap := make(map[string]sourceStatus)
+	now := time.Now()
+
 	total := 0
 	for _, src := range sources {
 		ext, ok := extractors.Registry[src]
@@ -232,6 +244,7 @@ func main() {
 		}
 		records, err := ext.Extract()
 		if errors.Is(err, extractors.ErrNotConfigured) {
+			statusMap[src] = sourceStatus{OK: false, LastRun: now, Error: "not configured"}
 			if *verbose {
 				log.Printf("  %s: not configured, skipping", src)
 			}
@@ -239,6 +252,7 @@ func main() {
 		}
 		if err != nil {
 			log.Printf("WARN: %s extraction failed: %v", src, err)
+			statusMap[src] = sourceStatus{OK: false, LastRun: now, Error: err.Error()}
 			continue
 		}
 		before := len(records)
@@ -249,11 +263,13 @@ func main() {
 		n, err := db.Upsert(src, records)
 		if err != nil {
 			log.Printf("WARN: %s upsert failed: %v", src, err)
+			statusMap[src] = sourceStatus{OK: false, LastRun: now, Error: err.Error()}
 			continue
 		}
 		if *verbose {
 			log.Printf("  %s: %d records", src, n)
 		}
+		statusMap[src] = sourceStatus{OK: true, LastRun: now, LastAdded: n}
 		total += n
 	}
 
@@ -273,6 +289,12 @@ func main() {
 
 	elapsed := time.Since(start)
 	fmt.Printf("Indexed %d records from %d sources in %s\n", total, len(sources), elapsed.Round(time.Millisecond))
+
+	// Write per-source status for the health endpoint.
+	statusPath := filepath.Join(filepath.Dir(*dbPath), "indexer-status.json")
+	if data, err := json.Marshal(statusMap); err == nil {
+		os.WriteFile(statusPath, data, 0644)
+	}
 
 	// Write build metadata
 	if err := db.SetMeta("last_build", time.Now().UTC().Format(time.RFC3339)); err != nil {

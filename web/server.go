@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -697,7 +698,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		conn.QueryRow("SELECT value FROM meta WHERE key = 'last_build'").Scan(&resp.Index.LastBuild)
 	}
 
-	// Live indexer source status.
+	// Per-source indexer status from the file written by the indexer process.
+	statusPath := filepath.Join(filepath.Dir(s.dbPath), "indexer-status.json")
+	if data, err := os.ReadFile(statusPath); err == nil {
+		var fileStatus map[string]SourceStatus
+		if json.Unmarshal(data, &fileStatus) == nil {
+			for k, v := range fileStatus {
+				resp.LiveSources[k] = v
+			}
+		}
+	}
+
+	// Merge in-memory watcher status (shows when the DB was last detected as changed).
 	s.statusMu.RLock()
 	for k, v := range s.sourceStatus {
 		resp.LiveSources[k] = v

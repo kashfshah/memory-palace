@@ -86,10 +86,12 @@ func (c *statsCache) invalidate() {
 	c.mu.Unlock()
 }
 
-// SourceStatus records the watcher state. Exposed via /api/health.
+// SourceStatus records the indexer result for one source. Written by the
+// indexer process to data/indexer-status.json; read by handleHealth.
 type SourceStatus struct {
 	LastRun    time.Time `json:"last_run,omitempty"`
 	LastChange time.Time `json:"last_change,omitempty"`
+	LastAdded  int       `json:"last_added,omitempty"`
 	Error      string    `json:"error,omitempty"`
 	OK         bool      `json:"ok"`
 }
