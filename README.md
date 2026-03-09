@@ -4,6 +4,11 @@ A personal knowledge indexer for macOS. Pulls your browsing history, bookmarks,
 notes, calendar, reminders, Zotero library, and more into a single SQLite database
 with full-text search and a local web UI.
 
+<p align="center">
+  <img src="docs/screenshot-mobile.png" width="200" alt="Memory Palace home screen" />
+  <img src="docs/screenshot-results.png" width="200" alt="Memory Palace search results" />
+</p>
+
 ---
 
 ## What it indexes
