@@ -364,8 +364,16 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 	rows, err := conn.Query(`
 		SELECT
 			CASE
-				WHEN url LIKE 'https://%' THEN substr(url, 9, instr(substr(url,9),'/')-1)
-				WHEN url LIKE 'http://%' THEN substr(url, 8, instr(substr(url,8),'/')-1)
+				WHEN url LIKE 'https://%' THEN
+					CASE WHEN instr(substr(url,9),'/') > 0
+						THEN substr(url, 9, instr(substr(url,9),'/')-1)
+						ELSE substr(url, 9)
+					END
+				WHEN url LIKE 'http://%' THEN
+					CASE WHEN instr(substr(url,8),'/') > 0
+						THEN substr(url, 8, instr(substr(url,8),'/')-1)
+						ELSE substr(url, 8)
+					END
 				ELSE 'other'
 			END as domain,
 			COUNT(*) as cnt
