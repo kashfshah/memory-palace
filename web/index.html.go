@@ -616,7 +616,8 @@ async function doSearch() {
   activateTab('results');
 
   try {
-    const endpoint = semanticMode ? '/api/search/semantic' : '/api/search';
+    // Semantic search requires a query — fall back to FTS browse when empty.
+    const endpoint = (semanticMode && q) ? '/api/search/semantic' : '/api/search';
     const data = await apiFetch(endpoint + '?' + params);
     renderResults(data || [], q);
   } catch (e) {
