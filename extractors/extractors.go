@@ -3,8 +3,8 @@ package extractors
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -45,9 +45,24 @@ func snapshotDB(srcPath string) (string, func(), error) {
 	return dst, cleanup, nil
 }
 
+// copyFile copies src to dst using Go native I/O so the file open runs in the
+// current process context — important for macOS TCC (Full Disk Access) where
+// child processes spawned via exec do not always inherit the parent's grants.
 func copyFile(src, dst string) error {
-	cmd := exec.Command("cp", src, dst)
-	return cmd.Run()
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // Extractor pulls records from a data source.
