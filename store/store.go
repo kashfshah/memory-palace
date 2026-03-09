@@ -314,6 +314,49 @@ func (db *DB) EnrichStats() (enriched, total int, err error) {
 	return
 }
 
+// Recent returns the most recently timestamped records, optionally filtered
+// by source. Used by the MCP get_recent tool.
+func Recent(dbPath, source string, limit int) ([]Record, error) {
+	conn, err := sql.Open("sqlite", dbPath+"?mode=ro")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	var rows *sql.Rows
+	if source != "" {
+		rows, err = conn.Query(`
+			SELECT source, timestamp, COALESCE(title,''), COALESCE(url,''),
+			       COALESCE(body,''), COALESCE(location,'')
+			FROM memory WHERE source = ?
+			ORDER BY timestamp DESC LIMIT ?
+		`, source, limit)
+	} else {
+		rows, err = conn.Query(`
+			SELECT source, timestamp, COALESCE(title,''), COALESCE(url,''),
+			       COALESCE(body,''), COALESCE(location,'')
+			FROM memory
+			ORDER BY timestamp DESC LIMIT ?
+		`, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []Record
+	for rows.Next() {
+		var r Record
+		var ts int64
+		if err := rows.Scan(&r.Source, &ts, &r.Title, &r.URL, &r.Body, &r.Location); err != nil {
+			continue
+		}
+		r.Timestamp = time.Unix(ts, 0)
+		results = append(results, r)
+	}
+	return results, nil
+}
+
 // Query runs a full-text search and returns matching records.
 func Query(dbPath, query string) ([]Record, error) {
 	conn, err := sql.Open("sqlite", dbPath+"?mode=ro")

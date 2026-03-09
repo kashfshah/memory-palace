@@ -198,8 +198,41 @@ load_service() {
 load_service "$INDEXER_LABEL" "$INDEXER_PLIST"
 load_service "$WEB_LABEL" "$WEB_PLIST"
 
-# ── 6. First run ───────────────────────────────────────────────────────────────
-bold "6. Triggering first indexer run"
+# ── 6. MCP server — Claude Desktop config ────────────────────────────────────
+bold "6. MCP server (Claude Desktop)"
+
+CLAUDE_CONFIG_DIR="$HOME/Library/Application Support/Claude"
+CLAUDE_CONFIG="$CLAUDE_CONFIG_DIR/claude_desktop_config.json"
+MCP_ENTRY="{\"command\":\"${BUNDLE_BINARY}\",\"args\":[\"--mcp\",\"--db\",\"${DB}\"]}"
+
+if [ -f "$CLAUDE_CONFIG" ]; then
+    # Merge into existing config using python3 (ships with macOS).
+    python3 - "$CLAUDE_CONFIG" "$MCP_ENTRY" << 'PYEOF'
+import sys, json
+config_path, entry_json = sys.argv[1], sys.argv[2]
+entry = json.loads(entry_json)
+with open(config_path) as f:
+    config = json.load(f)
+config.setdefault("mcpServers", {})["memory-palace"] = entry
+with open(config_path, "w") as f:
+    json.dump(config, f, indent=2)
+PYEOF
+    ok "MCP entry merged into existing Claude Desktop config"
+else
+    mkdir -p "$CLAUDE_CONFIG_DIR"
+    python3 -c "
+import sys, json
+entry = json.loads(sys.argv[1])
+config = {'mcpServers': {'memory-palace': entry}}
+with open(sys.argv[2], 'w') as f:
+    json.dump(config, f, indent=2)
+" "$MCP_ENTRY" "$CLAUDE_CONFIG"
+    ok "Claude Desktop config created: $CLAUDE_CONFIG"
+fi
+info "Restart Claude Desktop to pick up the memory-palace MCP server."
+
+# ── 7. First run ───────────────────────────────────────────────────────────────
+bold "7. Triggering first indexer run"
 launchctl kickstart "gui/$(id -u)/${INDEXER_LABEL}" 2>/dev/null || \
     launchctl start "$INDEXER_LABEL" 2>/dev/null || true
 ok "Indexer started"
@@ -208,5 +241,6 @@ echo ""
 bold "Installation complete."
 echo ""
 info "Indexer runs hourly. Web UI: http://localhost:7703"
+info "MCP: restart Claude Desktop — 'memory-palace' server will appear"
 info "Logs:  tail -f $PROJECT_DIR/data/memory-palace.log"
 info "Check: launchctl list | grep memory-palace"

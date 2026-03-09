@@ -12,6 +12,7 @@ import (
 
 	"github.com/kashfshah/memory-palace/enrichment"
 	"github.com/kashfshah/memory-palace/extractors"
+	"github.com/kashfshah/memory-palace/mcp"
 	"github.com/kashfshah/memory-palace/store"
 	"github.com/kashfshah/memory-palace/web"
 )
@@ -38,7 +39,16 @@ func main() {
 	feedFlag := flag.Bool("feed", false, "Feed new Memory Palace URLs to ArchiveBox")
 	feedBatch := flag.Int("feed-batch", 0, "Max URLs to feed per run (0 = no limit, submit all eligible)")
 	sanitizeFlag := flag.Bool("sanitize", false, "Immediately delete all blocked records from the DB (runs without re-extracting)")
+	mcpFlag := flag.Bool("mcp", false, "Start MCP stdio server (for Claude Desktop and other MCP clients)")
 	flag.Parse()
+
+	if *mcpFlag {
+		srv := mcp.New(*dbPath)
+		if err := srv.Run(); err != nil {
+			log.Fatalf("mcp: %v", err)
+		}
+		return
+	}
 
 	if *queryFlag != "" {
 		results, err := store.Query(*dbPath, *queryFlag)
