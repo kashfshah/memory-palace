@@ -128,6 +128,7 @@ cat > "$INDEXER_PLIST" << PLISTEOF
     <key>ProgramArguments</key>
     <array>
         <string>${INDEXER_PROGRAM}</string>
+        <string>--auto-zotero</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${PROJECT_DIR}</string>

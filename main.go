@@ -36,6 +36,7 @@ func main() {
 	authPass := flag.String("auth-pass", "", "Basic auth password (or MP_AUTH_PASS env)")
 	migrateFlag := flag.Bool("migrate-to-zotero", false, "Export Safari bookmarks as Zotero RDF for import")
 	importZoteroFlag := flag.Bool("import-to-zotero", false, "Import safari_bookmarks, safari_reading_list, and news_saved into Zotero via local API (requires Zotero open)")
+	autoZoteroFlag := flag.Bool("auto-zotero", false, "After indexing, import new items to Zotero if Zotero is running (skips silently if Zotero is closed)")
 	dryRunFlag := flag.Bool("dry-run", false, "Show what would happen without saving")
 	batchFlag := flag.Int("batch", 0, "Max items per batch (0 = all)")
 	cleanupFlag := flag.Bool("zotero-cleanup", false, "Generate Zotero cleanup scripts (JS for Zotero console)")
@@ -378,6 +379,17 @@ func main() {
 	// Write build metadata
 	if err := db.SetMeta("last_build", time.Now().UTC().Format(time.RFC3339)); err != nil {
 		log.Printf("WARN: could not write build metadata: %v", err)
+	}
+
+	if *autoZoteroFlag {
+		zc := newZoteroConnector()
+		if err := zc.ping(); err == nil {
+			fmt.Println("Zotero open — running auto import...")
+			if err := runZoteroImport(*dbPath, false, 0); err != nil {
+				log.Printf("WARN: auto-zotero import failed: %v", err)
+			}
+		}
+		// silently skip when Zotero is closed
 	}
 
 	if _, err := os.Stdout.Write([]byte("")); err != nil {
