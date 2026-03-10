@@ -85,6 +85,7 @@ var Registry = map[string]Extractor{
 	"knowledgec":          &KnowledgeC{},
 	"clipboard":           &Clipboard{},
 	"news_saved":          &NewsSaved{},
+	"contacts":            &Contacts{},
 }
 
 // AllSources returns all registered source names.

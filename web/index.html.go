@@ -157,6 +157,7 @@ const indexHTML = `<!DOCTYPE html>
   .src-knowledgec { background: rgba(163,113,247,0.15); color: #a371f7; }
   .src-clipboard { background: rgba(139,148,158,0.15); color: #8b949e; }
   .src-news_saved { background: rgba(232,162,42,0.15); color: #e8a22a; }
+  .src-contacts { background: rgba(57,211,83,0.15); color: #39d353; }
   .result-time { font-size: 0.7rem; color: var(--text-faint); }
   .result-title { font-weight: 500; font-size: 0.95rem; }
   .result-title a { color: var(--text); text-decoration: none; transition: color 0.15s; }
@@ -399,6 +400,7 @@ const indexHTML = `<!DOCTYPE html>
       <option value="knowledgec">App Usage</option>
       <option value="clipboard">Clipboard</option>
       <option value="news_saved">News (Saved)</option>
+      <option value="contacts">Contacts</option>
     </select>
     <select id="sort-filter" title="Sort order">
       <option value="relevance">Relevance</option>
@@ -780,14 +782,14 @@ const SRC_COLORS = {
   safari_open_tabs: '#79c0ff', safari_icloud_tabs: '#56d364',
   safari_reading_list: '#388bfd', calendar: '#d29922',
   reminders: '#bc8cff', notes: '#f778ba', zotero: '#cc3333', archivebox: '#f0883e',
-  knowledgec: '#a371f7', news_saved: '#e8a22a'
+  knowledgec: '#a371f7', news_saved: '#e8a22a', contacts: '#39d353'
 };
 const SRC_LABELS = {
   safari_history: 'Safari History', safari_bookmarks: 'Bookmarks',
   safari_open_tabs: 'Open Tabs', safari_icloud_tabs: 'iCloud Tabs',
   safari_reading_list: 'Reading List', calendar: 'Calendar',
   reminders: 'Reminders', notes: 'Notes', zotero: 'Zotero', archivebox: 'ArchiveBox',
-  knowledgec: 'App Usage', clipboard: 'Clipboard', news_saved: 'News (Saved)'
+  knowledgec: 'App Usage', clipboard: 'Clipboard', news_saved: 'News (Saved)', contacts: 'Contacts'
 };
 function formatSourceFull(s) { return SRC_LABELS[s] || s.replace(/_/g, ' '); }
 
