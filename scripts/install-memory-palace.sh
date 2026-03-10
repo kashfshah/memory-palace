@@ -158,7 +158,14 @@ cat > "$WEB_PLIST" << PLISTEOF
     <string>${WEB_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${PROJECT_DIR}/scripts/run-web.sh</string>
+        <string>${BUNDLE_BINARY}</string>
+        <string>--serve</string>
+        <string>--port</string>
+        <string>7703</string>
+        <string>--db</string>
+        <string>${PROJECT_DIR}/data/memory.db</string>
+        <string>--embed-bin</string>
+        <string>${PROJECT_DIR}/bin/mp-embed</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${PROJECT_DIR}</string>
@@ -178,11 +185,27 @@ ok "Installed: $WEB_PLIST"
 # ── 5. Load services ──────────────────────────────────────────────────────────
 bold "5. Loading launchd services"
 
+HASH_DIR="${HOME}/.cache/memory-palace"
+mkdir -p "$HASH_DIR"
+
 load_service() {
     local label="$1" plist="$2"
-    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "$plist"
-    ok "Loaded: $label"
+    local hash_file="${HASH_DIR}/$(basename "$plist").sha1"
+    local new_hash old_hash="none"
+    new_hash=$(shasum "$plist" | cut -d' ' -f1)
+    [ -f "$hash_file" ] && old_hash=$(cat "$hash_file")
+
+    if [ "$new_hash" = "$old_hash" ] && launchctl list "$label" &>/dev/null; then
+        # Plist unchanged and service running — just restart, no re-registration.
+        # Skipping bootout+bootstrap avoids triggering macOS background activity notifications.
+        launchctl kickstart -k "gui/$(id -u)/${label}" 2>/dev/null || true
+        ok "Restarted (plist unchanged): $label"
+    else
+        launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+        launchctl bootstrap "gui/$(id -u)" "$plist"
+        echo "$new_hash" > "$hash_file"
+        ok "Loaded: $label"
+    fi
 }
 
 load_service "$INDEXER_LABEL" "$INDEXER_PLIST"
