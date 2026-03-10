@@ -50,6 +50,8 @@ func main() {
 	summarizeFlag := flag.Bool("summarize-local", false, "Summarize records locally using FoundationModels")
 	summarizeLimit := flag.Int("summarize-limit", 50, "Max records to summarize per run")
 	summarizeBin  := flag.String("summarize-bin", "bin/mp-summarize", "Path to mp-summarize binary")
+	enrichZoteroFlag := flag.Bool("enrich-zotero", false, "Enrich Zotero items (abstractNote IS NULL) via Kagi Summarizer. Requires Zotero to be closed.")
+	enrichZoteroLimit := flag.Int("enrich-zotero-limit", 20, "Max items to enrich per run (Kagi spend guard)")
 	flag.Parse()
 
 	if *mcpFlag {
@@ -70,6 +72,20 @@ func main() {
 	if *summarizeFlag {
 		if err := runSummarizeLocal(*dbPath, *summarizeBin, *summarizeLimit, *verbose); err != nil {
 			log.Fatalf("summarize-local: %v", err)
+		}
+		return
+	}
+
+	if *enrichZoteroFlag {
+		key := os.Getenv("KAGI_API_KEY")
+		if key == "" {
+			key = loadDevVar("KAGI_API_KEY")
+		}
+		if key == "" {
+			log.Fatal("--enrich-zotero requires KAGI_API_KEY in env or .dev.vars")
+		}
+		if err := runZoteroEnrich(key, *enrichZoteroLimit, *dryRunFlag); err != nil {
+			log.Fatalf("enrich-zotero: %v", err)
 		}
 		return
 	}
