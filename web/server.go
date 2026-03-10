@@ -162,10 +162,16 @@ func (s *Server) handleHealthPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	source := r.URL.Query().Get("source")
+	sort := r.URL.Query().Get("sort") // "newest" (default) | "oldest" | "relevance"
 	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
 	limit := 50
+	offset := 0
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
 		limit = l
+	}
+	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		offset = o
 	}
 
 	conn, ok := s.openDBOrJSON(w, []byte("[]"))
@@ -177,6 +183,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var rows *sql.Rows
 	if q != "" {
+		orderBy := "f.rank" // relevance default for FTS
+		if sort == "newest" {
+			orderBy = "m.timestamp DESC"
+		} else if sort == "oldest" {
+			orderBy = "m.timestamp ASC"
+		}
 		query := `SELECT m.source, m.timestamp, COALESCE(m.title,''), COALESCE(m.url,''),
 			COALESCE(m.body,''), COALESCE(m.summary,''), COALESCE(m.location,''), COALESCE(m.psh_tags,'')
 			FROM memory m JOIN memory_fts f ON f.rowid = m.id
@@ -186,10 +198,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			query += " AND m.source = ?"
 			args = append(args, source)
 		}
-		query += " ORDER BY f.rank LIMIT ?"
-		args = append(args, limit)
+		query += " ORDER BY " + orderBy + " LIMIT ? OFFSET ?"
+		args = append(args, limit, offset)
 		rows, err = conn.Query(query, args...)
 	} else {
+		orderBy := "timestamp DESC" // newest default for browse
+		if sort == "oldest" {
+			orderBy = "timestamp ASC"
+		}
 		query := `SELECT source, timestamp, COALESCE(title,''), COALESCE(url,''),
 			COALESCE(body,''), COALESCE(summary,''), COALESCE(location,''), COALESCE(psh_tags,'')
 			FROM memory WHERE 1=1`
@@ -198,8 +214,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			query += " AND source = ?"
 			args = append(args, source)
 		}
-		query += " ORDER BY timestamp DESC LIMIT ?"
-		args = append(args, limit)
+		query += " ORDER BY " + orderBy + " LIMIT ? OFFSET ?"
+		args = append(args, limit, offset)
 		rows, err = conn.Query(query, args...)
 	}
 	if err != nil {

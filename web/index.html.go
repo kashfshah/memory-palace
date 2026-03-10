@@ -155,22 +155,24 @@ const indexHTML = `<!DOCTYPE html>
   .src-safari_icloud_tabs { background: rgba(86,211,100,0.15); color: #56d364; }
   .src-safari_reading_list { background: rgba(56,139,253,0.15); color: #388bfd; }
   .src-knowledgec { background: rgba(163,113,247,0.15); color: #a371f7; }
+  .src-clipboard { background: rgba(139,148,158,0.15); color: #8b949e; }
+  .src-news_saved { background: rgba(232,162,42,0.15); color: #e8a22a; }
   .result-time { font-size: 0.7rem; color: var(--text-faint); }
   .result-title { font-weight: 500; font-size: 0.95rem; }
   .result-title a { color: var(--text); text-decoration: none; transition: color 0.15s; }
   .result-title a:hover { color: var(--accent); }
-  .result-body {
-    font-size: 0.8rem; color: var(--text-dim); margin-top: 0.2rem;
-    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
+  .result-body { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.2rem; white-space: pre-wrap; }
   .result-summary {
     font-size: 0.8rem; color: var(--green); margin-top: 0.3rem;
     border-left: 2px solid var(--green); padding-left: 0.5rem;
-    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
   }
   .result-location { font-size: 0.75rem; color: var(--orange); margin-top: 0.15rem; }
+  .result-detail { margin-top: 0.4rem; border-top: 1px solid var(--border); padding-top: 0.4rem; }
+  .expand-btn {
+    margin-left: auto; background: none; border: none; color: var(--text-faint);
+    cursor: pointer; font-size: 0.8rem; padding: 0 0.2rem; line-height: 1;
+  }
+  .expand-btn:hover { color: var(--accent); }
   .psh-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.3rem; }
   .psh-tag { display: inline-block; padding: 0.1rem 0.4rem; background: rgba(30,60,90,0.5); border: 1px solid rgba(88,166,255,0.25);
     border-radius: 3px; font-size: 0.7rem; color: var(--accent); cursor: pointer; }
@@ -398,6 +400,11 @@ const indexHTML = `<!DOCTYPE html>
       <option value="clipboard">Clipboard</option>
       <option value="news_saved">News (Saved)</option>
     </select>
+    <select id="sort-filter" title="Sort order">
+      <option value="relevance">Relevance</option>
+      <option value="newest">Newest</option>
+      <option value="oldest">Oldest</option>
+    </select>
     <button id="search-mode-btn" class="semantic-on" onclick="toggleSearchMode()" title="Toggle semantic (vector) search">✦ Semantic</button>
     <button onclick="doSearch()">Search</button>
   </div>
@@ -602,28 +609,55 @@ function toggleSearchMode() {
   if ($('#search-input').value.trim()) doSearch();
 }
 
+const PAGE_SIZE = 50;
+let currentSearchOffset = 0;
+let currentSearchParams = null;
+
 async function doSearch() {
+  currentSearchOffset = 0;
   const q = $('#search-input').value.trim();
   const source = $('#source-filter').value;
-  const params = new URLSearchParams();
-  if (q) params.set('q', q);
-  if (source) params.set('source', source);
-  params.set('limit', '50');
+  const sort = $('#sort-filter').value;
+  currentSearchParams = {q, source, sort};
 
-  updateHash({tab: 'results', q: q || undefined, source: source || undefined});
+  updateHash({tab: 'results', q: q || undefined, source: source || undefined, sort: sort !== 'relevance' ? sort : undefined});
 
   const el = $('#results');
   el.innerHTML = Array(5).fill('<div class="skeleton skeleton-result"></div>').join('');
   activateTab('results');
 
   try {
-    // Semantic search requires a query — fall back to FTS browse when empty.
-    const endpoint = (semanticMode && q) ? '/api/search/semantic' : '/api/search';
-    const data = await apiFetch(endpoint + '?' + params);
-    renderResults(data || [], q);
+    const data = await fetchSearchPage(q, source, sort, 0);
+    renderResults(data || [], q, false);
   } catch (e) {
     showError(el, 'Search failed: ' + e.message, 'doSearch()');
   }
+}
+
+async function loadMoreResults() {
+  if (!currentSearchParams) return;
+  const {q, source, sort} = currentSearchParams;
+  currentSearchOffset += PAGE_SIZE;
+  const btn = $('#load-more-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  try {
+    const data = await fetchSearchPage(q, source, sort, currentSearchOffset);
+    renderResults(data || [], q, true);
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Load more'; }
+  }
+}
+
+async function fetchSearchPage(q, source, sort, offset) {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (source) params.set('source', source);
+  if (sort) params.set('sort', sort);
+  params.set('limit', PAGE_SIZE);
+  params.set('offset', offset);
+  // Semantic search requires a query — fall back to FTS browse when empty.
+  const endpoint = (semanticMode && q) ? '/api/search/semantic' : '/api/search';
+  return apiFetch(endpoint + '?' + params);
 }
 
 function setResultsTabCount(n) {
@@ -631,44 +665,100 @@ function setResultsTabCount(n) {
   if (t) t.textContent = n != null ? 'Browse (' + n + ')' : 'Browse';
 }
 
-function renderResults(results, query) {
+let totalResultsShown = 0;
+
+function renderResults(results, query, append) {
   const el = $('#results');
-  if (!results.length) {
-    setResultsTabCount(0);
-    el.innerHTML = '<div class="empty-state"><div class="icon">&#x1f50d;</div>' +
-      '<p>No results found' + (query ? ' for "' + escHtml(query) + '"' : '') + '</p></div>';
+  const existing = append ? $('#results-list') : null;
+
+  if (!append) {
+    totalResultsShown = 0;
+    if (!results.length) {
+      setResultsTabCount(0);
+      el.innerHTML = '<div class="empty-state"><div class="icon">&#x1f50d;</div>' +
+        '<p>No results found' + (query ? ' for "' + escHtml(query) + '"' : '') + '</p></div>';
+      return;
+    }
+  } else if (!results.length) {
+    const btn = $('#load-more-btn');
+    if (btn) btn.remove();
     return;
   }
-  setResultsTabCount(results.length);
 
-  const countHtml = '<div class="result-count">' + results.length + ' result' + (results.length !== 1 ? 's' : '') +
-    (query ? ' for "' + escHtml(query) + '"' : '') + '</div>';
+  totalResultsShown += results.length;
+  setResultsTabCount(totalResultsShown);
 
-  el.innerHTML = countHtml + '<div class="results">' + results.map(r => {
+  const newItems = results.map((r, i) => {
+    const id = 'r-' + currentSearchOffset + '-' + i;
     const titleText = r.title || r.url || '(untitled)';
     const titleContent = r.url
       ? buildLink(r.url, highlight(titleText, query))
       : highlight(titleText, query);
 
-    let html = '<div class="result">' +
+    const hasDetail = (r.body && r.body.length > 2) || r.summary || r.location;
+    const expandBtn = hasDetail
+      ? '<button class="expand-btn" onclick="toggleExpand(\'' + id + '\')" title="Expand details">▸</button>'
+      : '';
+
+    let html = '<div class="result" id="' + id + '">' +
       '<div class="result-header">' +
         '<span class="result-source src-' + r.source + '" onclick="filterSource(\'' + r.source + '\')" style="cursor:pointer" title="Browse ' + formatSource(r.source) + '">' + formatSource(r.source) + '</span>' +
         (r.similarity ? '<span class="similarity-badge">' + r.similarity.toFixed(3) + '</span>' : '') +
         '<span class="result-time" title="' + r.time + '">' + relativeTime(r.unix) + '</span>' +
+        expandBtn +
       '</div>' +
       '<div class="result-title">' + titleContent + '</div>';
 
-    if (r.location) html += '<div class="result-location">' + escHtml(r.location) + '</div>';
-    if (r.body && r.body.length > 2) html += '<div class="result-body">' + highlight(truncate(r.body, 200), query) + '</div>';
-    if (r.summary) html += '<div class="result-summary">' + escHtml(truncate(r.summary, 300)) + '</div>';
     if (r.psh_tags && r.psh_tags.length) {
       html += '<div class="psh-tags">' + r.psh_tags.map(t =>
         '<span class="psh-tag" data-tag="' + escHtml(t) + '" onclick="searchTag(this)">' + escHtml(t) + '</span>'
       ).join('') + '</div>';
     }
+
+    if (hasDetail) {
+      html += '<div class="result-detail" id="' + id + '-detail" style="display:none">';
+      if (r.location) html += '<div class="result-location">' + escHtml(r.location) + '</div>';
+      if (r.body && r.body.length > 2) html += '<div class="result-body">' + highlight(r.body, query) + '</div>';
+      if (r.summary) html += '<div class="result-summary">' + escHtml(r.summary) + '</div>';
+      html += '</div>';
+    }
+
     html += '</div>';
     return html;
-  }).join('') + '</div>';
+  }).join('');
+
+  const hasMore = results.length === PAGE_SIZE;
+  const loadMoreHtml = hasMore
+    ? '<div style="text-align:center;padding:1rem"><button id="load-more-btn" onclick="loadMoreResults()" style="padding:0.4rem 1.2rem">Load more</button></div>'
+    : '';
+
+  if (append && existing) {
+    const oldBtn = $('#load-more-btn');
+    if (oldBtn) oldBtn.closest('div').remove();
+    existing.insertAdjacentHTML('beforeend', newItems);
+    el.insertAdjacentHTML('beforeend', loadMoreHtml);
+  } else {
+    const countHtml = '<div class="result-count" id="result-count-bar">' +
+      totalResultsShown + ' result' + (totalResultsShown !== 1 ? 's' : '') +
+      (query ? ' for "' + escHtml(query) + '"' : '') + '</div>';
+    el.innerHTML = countHtml + '<div class="results" id="results-list">' + newItems + '</div>' + loadMoreHtml;
+  }
+
+  // Update count bar when appending
+  if (append) {
+    const bar = $('#result-count-bar');
+    if (bar) bar.textContent = totalResultsShown + ' result' + (totalResultsShown !== 1 ? 's' : '') +
+      (query ? ' for "' + escHtml(query) + '"' : '') + (hasMore ? '+' : '');
+  }
+}
+
+function toggleExpand(id) {
+  const detail = $('#' + id + '-detail');
+  const btn = $('#' + id + ' .expand-btn');
+  if (!detail) return;
+  const open = detail.style.display !== 'none';
+  detail.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? '▸' : '▾';
 }
 
 function formatSource(s) {
