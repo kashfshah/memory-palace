@@ -32,7 +32,7 @@ import (
 //	ssh $ARCHIVEBOX_SSH_HOST 'tmux capture-pane -t archivebox-feed -p'
 
 const (
-	memoryDBPath    = "../data/memory.db"
+	memoryDBPath    = "data/memory.db"
 	archiveDBLocal  = "/tmp/archivebox-index.sqlite3"
 	archiveDBRemote = "archivebox/home/archivebox/data/index.sqlite3"
 
@@ -49,7 +49,7 @@ func archiveSSHHost() string {
 	if h := os.Getenv("ARCHIVEBOX_SSH_HOST"); h != "" {
 		return h
 	}
-	return "archivebox-host"
+	return "cabinet"
 }
 
 // skipPatterns filters out URLs that won't archive well.
