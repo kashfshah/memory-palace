@@ -12,7 +12,8 @@ import (
 )
 
 // Notes extracts note titles and metadata from Apple Notes' NoteStore.sqlite.
-// Body content lives in gzipped protobuf (ZICNOTEDATA.ZDATA) — deferred to Phase 3.
+// macOS 26 moved titles to ZTITLE1 and dates to ZCREATIONDATE3/ZMODIFICATIONDATE1
+// on the ICNote entity (Z_ENT=12). The old ZTITLE/ZCREATIONDATE columns are empty.
 type Notes struct{}
 
 func (n *Notes) Extract() ([]store.Record, error) {
@@ -31,21 +32,27 @@ func (n *Notes) Extract() ([]store.Record, error) {
 	}
 	defer conn.Close()
 
+	// Query ICNote entities (Z_ENT=12) directly.
+	// ZTITLE1 holds the title (ZTITLE is empty on macOS 26).
+	// ZCREATIONDATE3/ZMODIFICATIONDATE1 hold dates (ZCREATIONDATE/ZMODIFICATIONDATE are empty).
+	// ZSNIPPET holds a text preview of the note body.
 	rows, err := conn.Query(`
 		SELECT
 			n.Z_PK,
-			COALESCE(n.ZTITLE, ''),
-			COALESCE(n.ZCREATIONDATE, 0),
-			COALESCE(n.ZMODIFICATIONDATE, 0),
+			COALESCE(n.ZTITLE1, ''),
+			COALESCE(n.ZCREATIONDATE3, 0),
+			COALESCE(n.ZMODIFICATIONDATE1, 0),
 			COALESCE(n.ZSNIPPET, ''),
 			COALESCE(folder.ZTITLE2, ''),
 			COALESCE(n.ZIDENTIFIER, '')
 		FROM ZICCLOUDSYNCINGOBJECT n
 		LEFT JOIN ZICCLOUDSYNCINGOBJECT folder
-			ON n.ZFOLDER = folder.Z_PK
-		WHERE n.ZTITLE IS NOT NULL
+			ON n.ZFOLDER = folder.Z_PK AND folder.Z_ENT = 15
+		WHERE n.Z_ENT = 12
+			AND n.ZTITLE1 IS NOT NULL
+			AND n.ZTITLE1 != ''
 			AND COALESCE(n.ZMARKEDFORDELETION, 0) != 1
-		ORDER BY n.ZMODIFICATIONDATE DESC
+		ORDER BY n.ZMODIFICATIONDATE1 DESC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("query notes: %w", err)
@@ -62,9 +69,18 @@ func (n *Notes) Extract() ([]store.Record, error) {
 			continue
 		}
 
-		// Notes uses Core Data epoch
-		unixTime := int64(modDate) + coreDataEpoch
-		ts := time.Unix(unixTime, 0)
+		// Pick best available date: modification > creation > epoch zero
+		bestDate := modDate
+		if bestDate == 0 {
+			bestDate = createDate
+		}
+
+		var ts time.Time
+		if bestDate > 0 {
+			ts = time.Unix(int64(bestDate)+coreDataEpoch, 0)
+		} else {
+			ts = time.Unix(0, 0)
+		}
 
 		body := snippet
 		if folder != "" {
